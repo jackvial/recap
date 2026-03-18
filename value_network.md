@@ -87,12 +87,37 @@ $$
 R(\tau) = \sum_{t=0}^{T} r_t.
 $$
 
+This is then quantized/binned.
 
 $$
 R_t^B(\tau).
 $$
 
-This is a one-hot representation of the return bucket assigned to timestep $t$.
+```python
+# Binned return's example
+import numpy as np
+
+NUM_BINS = 201
+
+def value_targets_from_success(success: bool, T: int, max_episode_len: int, c_fail: int):
+    if success:
+        # t = 0..T, target is negative remaining steps normalized to [-1, 0]
+        returns = -np.arange(T, -1, -1, dtype=np.float32) / max_episode_len
+    else:
+        # failed episodes get a large negative value, then clamp into training range if desired
+        returns = np.full(T + 1, -c_fail / max_episode_len, dtype=np.float32)
+
+    # paper says values are predicted in (-1, 0)
+    returns = np.clip(returns, -1.0, 0.0)
+
+    bin_edges = np.linspace(-1.0, 0.0, NUM_BINS + 1)
+    
+    # tell us which bin each step belongs to
+    bin_ids = np.clip(np.digitize(returns, bin_edges) - 1, 0, NUM_BINS - 1)
+
+    return returns, bin_ids
+```
+
 
 ## Intuition with a Reward Sequence
 
