@@ -118,6 +118,50 @@ def value_targets_from_success(success: bool, T: int, max_episode_len: int, c_fa
     return returns, bin_ids
 ```
 
+Cross-entropy is applied per timestep, not once per whole trajectory.
+
+If a trajectory has `T + 1` observations, then:
+
+- `returns.shape == (T + 1,)`
+- `bin_ids.shape == (T + 1,)`
+- `logits.shape == (T + 1, NUM_BINS)`
+
+Each row `logits[t]` is the model's predicted distribution over the 201 bins for observation `o_t`, and `bin_ids[t]` is the index of the correct bin for that same timestep.
+
+```python
+import torch
+import torch.nn.functional as F
+
+# Example successful trajectory with 5 observations: t = 0..4
+returns, bin_ids = value_targets_from_success(
+    success=True,
+    T=4,
+    max_episode_len=10,
+    c_fail=20,
+)
+
+# Shape: (5, 201)
+# One 201-bin prediction for each timestep.
+logits = torch.randn(len(bin_ids), NUM_BINS)
+
+# Shape: (5,)
+# One target class index for each timestep.
+targets = torch.tensor(bin_ids, dtype=torch.long)
+
+loss = F.cross_entropy(logits, targets)
+```
+
+This works because PyTorch interprets the inputs as:
+
+- `logits[t, :]`: scores for all bins at timestep `t`
+- `targets[t]`: the correct bin index at timestep `t`
+
+So the loss is effectively:
+
+$$
+\frac{1}{T+1}\sum_{t=0}^{T} -\log p_{\phi}(V = \text{bin\_ids}[t] \mid o_t, \ell).
+$$
+
 
 ## Intuition with a Reward Sequence
 
