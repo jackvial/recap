@@ -97,84 +97,71 @@ $$
 # Binned return's example
 import numpy as np
 
-NUM_BINS = 201
+NUM_BINS = 5
 
-def value_targets_from_success(success: bool, T: int, max_episode_len: int, c_fail: int):
+def value_targets_from_success(success: bool, episode_len: int, max_episode_len: int, c_fail: int):
+    assert NUM_BINS <= episode_len
+    assert max_episode_len >= episode_len
     if success:
-        # t = 0..T, target is negative remaining steps normalized to [-1, 0]
-        returns = -np.arange(T, -1, -1, dtype=np.float32) / max_episode_len
+        # t = 0..episode_len-1, target is negative remaining steps normalized to [-1, 0]
+        returns = -np.arange(episode_len - 1, -1, -1, dtype=np.float32) / max_episode_len
     else:
         # failed episodes get a large negative value, then clamp into training range if desired
-        returns = np.full(T + 1, -c_fail / max_episode_len, dtype=np.float32)
+        returns = np.full(episode_len, -c_fail / max_episode_len, dtype=np.float32)
 
     # paper says values are predicted in (-1, 0)
     returns = np.clip(returns, -1.0, 0.0)
 
     bin_edges = np.linspace(-1.0, 0.0, NUM_BINS + 1)
-    
-    # tell us which bin each step belongs to
-    bin_ids = np.clip(np.digitize(returns, bin_edges) - 1, 0, NUM_BINS - 1)
 
-    return returns, bin_ids
+    # Categorical label that will used as the target for cross entropy loss
+    # we are learning to predict bin ids not returns. the predicted bin
+    # will be used to recover an approximated return-to-go at inference
+    target_bin_ids = np.clip(np.digitize(returns, bin_edges) - 1, 0, NUM_BINS - 1)
+
+    return target_bin_ids, returns
 ```
 
-Cross-entropy is applied per timestep, not once per whole trajectory.
-
-If a trajectory has `T + 1` observations, then:
-
-- `returns.shape == (T + 1,)`
-- `bin_ids.shape == (T + 1,)`
-- `logits.shape == (T + 1, NUM_BINS)`
-
-Each row `logits[t]` is the model's predicted distribution over the 201 bins for observation `o_t`, and `bin_ids[t]` is the index of the correct bin for that same timestep.
+Cross-entropy is applied per timestep. Assume belong represents a batch of timesteps.
 
 ```python
 import torch
 import torch.nn.functional as F
 
-# Example successful trajectory with 5 observations: t = 0..4
-returns, bin_ids = value_targets_from_success(
+target_bin_ids, returns = value_targets_from_success(
     success=True,
-    T=4,
-    max_episode_len=10,
+    episode_len=10,
+    max_episode_len=11,
     c_fail=20,
 )
 
-# Shape: (5, 201)
-# One 201-bin prediction for each timestep.
-logits = torch.randn(len(bin_ids), NUM_BINS)
+# Shape: (10, NUM_BINS)
+# One NUM_BINS-bin prediction for each timestep.
+logits = torch.randn(len(target_bin_ids), NUM_BINS)
 
-# Shape: (5,)
+# Shape: (10,)
 # One target class index for each timestep.
-targets = torch.tensor(bin_ids, dtype=torch.long)
+targets = torch.tensor(target_bin_ids, dtype=torch.long)
 
 loss = F.cross_entropy(logits, targets)
 ```
 
-This works because PyTorch interprets the inputs as:
-
-- `logits[t, :]`: scores for all bins at timestep `t`
-- `targets[t]`: the correct bin index at timestep `t`
-
-So the loss is effectively:
+At inference time, the model predicts a categorical distribution over bins, and we convert that back into a scalar value estimate by taking the expectation over bin values:
 
 $$
-\frac{1}{T+1}\sum_{t=0}^{T} -\log p_{\phi}(V = \text{bin\_ids}[t] \mid o_t, \ell).
+\hat V_{\phi}(o_t, \ell) = \sum_{b=0}^{B-1} p_\phi(V=b \mid o_t, \ell)\, v(b),
 $$
 
+where $v(b)$ denotes the representative scalar value for bin $b$. In `value_network.py`, this is approximated with evenly spaced values in $[-1, 0]$.
 
-## Intuition with a Reward Sequence
+```python
+predicted_probs = F.softmax(logits, dim=-1)
 
-For a successful episode, a reward sequence might look like:
+# One option is to use representative values derived from the bins.
+vb_maybe = returns.reshape(NUM_BINS, -1)[:, -1]
 
-$$
-[-1,\,-1,\,-1,\,-1,\,-1,\,-1,\,-1,\,-1,\,-1,\,0].
-$$
+# A simple approximation is to use evenly spaced values in [-1, 0].
+vb = torch.linspace(-1, 0, NUM_BINS)
 
-The corresponding cumulative returns-to-go would be:
-
-$$
-[-9,\,-8,\,-7,\,-6,\,-5,\,-4,\,-3,\,-2,\,-1,\,0].
-$$
-
-Those scalar returns are then discretized into bins (for example `bin 0`, `bin 1`, `bin 2`, `bin 3`), and the network predicts logits over those bins.
+v_ref = (predicted_probs * vb).sum(dim=-1)
+```
