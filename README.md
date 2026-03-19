@@ -8,7 +8,10 @@
 ## Roadmap
 
 ### Milestone 1
-- [ ] Implementation notes of the value function model. Explain each relevant equation from the paper. Outline the base model and value head architecture including dimensions, value function.
+- [x] Notes on the main value function equations from the paper
+    - [value network notes](./notes_value_network.md)
+    - [value network code example](./value_network.py)
+- [ ] Notes on base model architecture needed for the value function/network
 - [ ] Implementation notes of the π∗0.6 with advantage conditioning. 
 - [ ] Collect a small dataset of a pick and place task on an SO-101. e.g. 20 positive examples, 20 negative examples.
 - [ ] Label the episodes with binary reward labels. Figure out where to keep the reward labels. 
