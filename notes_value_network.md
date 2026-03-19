@@ -186,6 +186,6 @@ vb_maybe = returns.reshape(NUM_BINS, -1)[:, -1]
 # A simple approximation of the normalized return R is to use evenly spaced values in [-1, 0].
 vb = torch.linspace(-1, 0, NUM_BINS)
 
-# Expected return given the predicted bin probabilities.
+# Expected return given the predicted bin probabilities. In other words, reconstruct a representation like R(tau)
 v_ref = (predicted_probs * vb).sum(dim=-1)
 ```
