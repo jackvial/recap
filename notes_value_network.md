@@ -19,8 +19,7 @@ Where:
 - $o_t$ is the observation at time $t$
 - $\ell$ is the language task instruction
 - $R_t^B(\tau)$ is the binned return-to-go target (represented as a one-hot vector)
-- $p_{\phi}(V \mid o_t, \ell)$ policy $p$ where the output is the predicted binned return-to-go. Not be confused with the stochastic dynamics from preliminaries which is also notated as $p$.
-- H is cross-entropy loss
+- $p_{\phi}(V \mid o_t, \ell)$ policy $p$ where the output is the predicted logits over bin ids/class ids. At inference time we will softmax the logits and use this to recover the expected return-to-go. Not be confused with the stochastic dynamics from preliminaries which is also notated as $p$.
 - $\mathcal{D}$ is the dataset of trajectories
 
 ## Inputs and Outputs
