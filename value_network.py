@@ -3,7 +3,7 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
-NUM_BINS = 5
+NUM_BINS = 6
 
 def value_targets_from_success(success: bool, episode_len: int, max_episode_len: int, c_fail: int):
     assert NUM_BINS <= episode_len
@@ -29,7 +29,7 @@ def value_targets_from_success(success: bool, episode_len: int, max_episode_len:
 
 
 if __name__ == "__main__":
-    target_bin_ids, returns = value_targets_from_success(success=True, episode_len=10, max_episode_len=11, c_fail=10)
+    target_bin_ids, returns = value_targets_from_success(success=True, episode_len=12, max_episode_len=12, c_fail=10)
     print("returns: ", returns)
     print("target_bin_ids: ", target_bin_ids)
     
