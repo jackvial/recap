@@ -27,7 +27,7 @@ Where:
 
 - Inputs: $o_t, \ell$
 - Outputs: logits over return bins
-- Targets: one-hot vectors of binned returns-to-go
+- Targets: bin id/class ids
 
 ## Standard RL Objective
 
