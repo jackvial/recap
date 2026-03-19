@@ -30,3 +30,7 @@
 - [ ] Update the advantage conditioned model to handle per intervention labels and force indicator true when intervention is true regardless of the computed advantage.
 - [ ] Collect episodes with intervention. Mix data, train value network, train advantage conditioned network. Evaluate, expect to see improvement over baseline.
 - [ ] Documentation. We should aim to get this much merged and provide getting started documentation. Should include our datasets, trained models, and experimental results as this will be useful reference material.
+
+## Notes
+- [value network notes](./notes_value_network.md)
+- [value network code example](./value_network.py)
