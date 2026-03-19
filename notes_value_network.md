@@ -118,7 +118,13 @@ def value_targets_from_success(success: bool, episode_len: int, max_episode_len:
     return target_bin_ids, returns
 ```
 
-Cross-entropy is applied per timestep. Assume belong represents a batch of timesteps.
+Cross-entropy is applied per timestep (batches at train time).
+
+```math
+\begin{equation}
+    \min_\phi \mathbb{E}_{\tau \in \mathcal{D}} \left[ \sum_{o_t \in \tau} H(R_t^B(\tau), p_\phi(V \mid o_t, \ell)) \right].
+\end{equation}
+```
 
 ```python
 import torch
@@ -142,7 +148,7 @@ targets = torch.tensor(target_bin_ids, dtype=torch.long)
 loss = F.cross_entropy(logits, targets)
 ```
 
-At inference time, the model predicts a categorical distribution over bins, and we convert that back into a scalar value estimate by taking the expectation over bin values:
+At inference time, the model predicts a categorical distribution over bins, and we convert that back into a scalar value estimate bys taking the expectation over bin values:
 
 ```math
 \hat V_{\phi}(o_t, \ell) = \sum_{b=0}^{B-1} p_\phi(V=b \mid o_t, \ell)\, v(b),
