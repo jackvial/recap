@@ -6,14 +6,13 @@ Given an observation at time $t$, the goal is to predict the cumulative reward-t
 
 The value network is trained as a classification problem over binned returns:
 
-$$
+```math
 \min_{\phi} \; \mathbb{E}_{\tau \in \mathcal{D}}
 \left[
 \sum_{o_t \in \tau}
 H\!\left(R_t^B(\tau),\, p_{\phi}(V \mid o_t, \ell)\right)
 \right].
-\tag{1}
-$$
+```
 
 Where:
 
@@ -34,27 +33,26 @@ Where:
 
 The standard reinforcement learning objective is to maximize expected return:
 
-$$
+```math
+\begin{aligned}
 J(\pi)
-=
-\mathbb{E}_{\tau \sim p_{\pi}}[R(\tau)]
-=
-\mathbb{E}_{\tau \sim p_{\pi}}
-\left[\sum_{t=0}^{T} r_t\right].
-$$
+&= \mathbb{E}_{\tau \sim p_{\pi}}[R(\tau)] \\
+&= \mathbb{E}_{\tau \sim p_{\pi}} \left[\sum_{t=0}^{T} r_t\right].
+\end{aligned}
+```
 
 ## Value Function
 
 The value function is the expected return starting from the current state and then following policy $\pi$:
 
-$$
+```math
 V^{\pi}(o_t)
 =
 \mathbb{E}_{t+1:T}
 \left[
 \sum_{t'=t}^{T} r_{t'}
 \right].
-$$
+```
 
 This can be interpreted as the expected return-to-go from state $o_t$ under policy $\pi$.
 
@@ -63,15 +61,14 @@ This can be interpreted as the expected return-to-go from state $o_t$ under poli
 
 The reward sequence is defined as:
 
-$$
+```math
 r_t =
 \begin{cases}
 0, & \text{if } t = T \text{ and success} \\
 -C_{\mathrm{fail}}, & \text{if } t = T \text{ and failure} \\
 -1, & \text{otherwise.}
 \end{cases}
-\tag{5}
-$$
+```
 
 This means:
 
@@ -83,15 +80,15 @@ This means:
 
 Trajectory return is:
 
-$$
+```math
 R(\tau) = \sum_{t=0}^{T} r_t.
-$$
+```
 
 This is then quantized/binned.
 
-$$
+```math
 R_t^B(\tau).
-$$
+```
 
 ```python
 # Binned return's example
@@ -148,9 +145,9 @@ loss = F.cross_entropy(logits, targets)
 
 At inference time, the model predicts a categorical distribution over bins, and we convert that back into a scalar value estimate by taking the expectation over bin values:
 
-$$
+```math
 \hat V_{\phi}(o_t, \ell) = \sum_{b=0}^{B-1} p_\phi(V=b \mid o_t, \ell)\, v(b),
-$$
+```
 
 where $v(b)$ denotes the representative scalar value for bin $b$. In `value_network.py`, this is approximated with evenly spaced values in $[-1, 0]$.
 
