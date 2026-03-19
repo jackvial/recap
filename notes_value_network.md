@@ -75,19 +75,40 @@ This means:
 - failed episodes receive terminal reward $-C_{\mathrm{fail}}$
 - every non-terminal step incurs a reward of $-1$
 
+The reward sequence for a successful episode will look something like
+
+```python
+[-1, -1, -1, -1, -1, -1, -1, -1, -1, 0]
+ ```
+
 ## Return and Binned Return
 
-Trajectory return is:
+The cumulative return of the trajectory $\tau$ from time $t$ till the end of the episode is denoted
 
 ```math
-R(\tau) = \sum_{t=0}^{T} r_t.
+R_{t}(\tau) = \sum_{t^{'}=t}^{T} r_{t^{'}}
 ```
 
-This is then quantized/binned.
+$R$ will look something like
+
+```python
+[-9, -8, -7, -6, -5, -4, -3, -2, -1, 0]
+ ```
+
+
+We want to represent the value function learning problem as multi-class classification. To this end we assign a bin id to each $t$ in the return trajectory. For $B=5$ over a 10 step trajectory this would look like
+
+```python
+[0, 0, 1, 1, 2, 2, 3, 3, 4, 4]
+```
+
+This binned version of the return is denoated as
 
 ```math
 R_t^B(\tau).
 ```
+
+These bin ids will be our class ids used as the targets for cross entropy loss $H$. At inference time the predicted distribution over class ids is used to recover an approximation of $R_{t}(\tau)$.
 
 ```python
 # Binned return's example
@@ -148,7 +169,7 @@ targets = torch.tensor(target_bin_ids, dtype=torch.long)
 loss = F.cross_entropy(logits, targets)
 ```
 
-At inference time, the model predicts a categorical distribution over bins, and we convert that back into a scalar value estimate bys taking the expectation over bin values:
+At inference time, the model predicts a categorical distribution over bins (class ids), and we convert that back into a scalar value estimate by taking the expectation over bins:
 
 ```math
 \hat V_{\phi}(o_t, \ell) = \sum_{b=0}^{B-1} p_\phi(V=b \mid o_t, \ell)\, v(b),
@@ -159,11 +180,12 @@ where $v(b)$ denotes the representative scalar value for bin $b$. In `value_netw
 ```python
 predicted_probs = F.softmax(logits, dim=-1)
 
-# One option is to use representative values derived from the bins.
+# One option is to use representative values derived from the bins e.g. take the last value from each bin.
 vb_maybe = returns.reshape(NUM_BINS, -1)[:, -1]
 
-# A simple approximation is to use evenly spaced values in [-1, 0].
+# A simple approximation of the normalized return R is to use evenly spaced values in [-1, 0].
 vb = torch.linspace(-1, 0, NUM_BINS)
 
+# Expected return given the predicted bin probabilities. In other words, reconstruct a representation like R(tau)
 v_ref = (predicted_probs * vb).sum(dim=-1)
 ```
