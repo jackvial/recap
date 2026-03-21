@@ -1,7 +1,7 @@
 # RECAP Advantage Conditioning
 
 ## Overview
-Start with the standard KL regularized RL objective ([SAC]((https://arxiv.org/pdf/1801.01290)), [TRPO](https://arxiv.org/pdf/1502.05477))
+Start with the standard KL regularized RL objective ([SAC](https://arxiv.org/pdf/1801.01290), [TRPO](https://arxiv.org/pdf/1502.05477))
 
 ```math
 \mathcal{J}(\pi, \pi^{ref}) = \mathbb{E}_{\tau \sim \rho_{\pi_\theta}}[\sum_{t=0}^T \gamma^t r_t] - \beta \mathbb{E}_{\mathbf{o} \sim \rho_{\pi_\theta}} [D(\pi(\cdot \mid \mathbf{o}) \| \pi_{\text{ref}}(\cdot \mid \mathbf{o}))]
