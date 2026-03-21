@@ -1,0 +1,1103 @@
+\documentclass{article}
+
+\PassOptionsToPackage{comma, numbers, sort}{natbib}
+
+
+
+
+    \usepackage[preprint]{neurips_2025}
+
+
+
+
+
+
+\usepackage[utf8]{inputenc} %
+\usepackage[T1]{fontenc}    %
+\usepackage[colorlinks]{hyperref}
+\usepackage{url}            %
+\usepackage{booktabs}       %
+\usepackage{amsfonts}       %
+\usepackage{nicefrac}       %
+\usepackage{microtype}      %
+\usepackage{xcolor}         %
+\usepackage{graphicx}
+\usepackage{amsmath}
+\usepackage{amsthm}
+\usepackage{subcaption}
+\usepackage{float}
+\usepackage{algorithm}
+\usepackage{algorithmic}
+\usepackage[capitalise,noabbrev,nameinlink]{cleveref}
+\usepackage{wrapfig}
+\usepackage{mathtools}
+\usepackage{basic_commands}
+\newtheorem{lemma}{Lemma}
+\newtheorem{theorem}{Theorem}
+\newtheorem{remark}{Remark}
+
+
+\definecolor{myred}{HTML}{D21418}
+\definecolor{myblue}{HTML}{598BE7}
+\definecolor{plgray}{HTML}{999999}
+\newcommand{\pl}[1]{{\color{plgray} #1}}
+\hypersetup{urlcolor=myred,citecolor=myred,linkcolor=myred}
+\DeclarePairedDelimiterX{\infdivx}[2]{(}{)}{%
+  #1\;\delimsize\|\;#2%
+}
+\newcommand{\kldiv}{D_{\mathrm{KL}}\infdivx}
+
+
+\newcommand{\red}[1]{\textcolor{red}{#1}}
+\newcommand{\sh}[1]{{\color{myblue}{\small\bf\sf [SP: #1]}}}
+
+
+
+
+\title{Diffusion Guidance Is a Controllable \\ Policy Improvement Operator}
+
+
+
+\author{Kevin Frans$^*$ \\
+  UC Berkeley\\
+  \texttt{kvfrans@berkeley.edu} \\
+  \And
+  Seohong Park$^*$ \\
+  UC Berkeley \\
+  \And
+  Pieter Abbeel \\
+  UC Berkeley \\
+  \And
+  Sergey Levine \\
+  UC Berkeley \\
+}
+
+
+\begin{document}
+
+
+\maketitle
+
+
+\begin{abstract}
+  At the core of reinforcement learning is the idea of learning beyond the performance in the data. However, scaling such systems has proven notoriously tricky. In contrast, techniques from generative modeling have proven remarkably scalable and are simple to train. 
+  In this work, we combine these strengths, by deriving a direct relation between policy improvement and guidance of diffusion models. The resulting framework, CFGRL, is trained with the simplicity of supervised learning, yet can further improve on the policies in the data.
+  On offline RL tasks, we observe a reliable trend---increased guidance weighting leads to increased performance. Of particular importance, CFGRL can operate without explicitly learning a value function, allowing us to generalize simple supervised methods (e.g., goal-conditioned behavioral cloning) to further prioritize optimality, gaining performance for ``free'' across the board.
+\end{abstract}
+
+
+\section{Introduction}
+
+\def\thefootnote{*}\footnotetext{Equal contribution.}\def\thefootnote{\arabic{footnote}}
+
+Reinforcement learning (RL) provides a powerful framework for autonomous agents to attain strong performance by directly optimizing for task rewards. However, scaling up RL algorithms has proven notoriously challenging, particularly when using off-policy datasets. In contrast, modern generative modeling techniques have proven remarkably scalable, and have been used for related problems such as behavioral cloning \citep{diffuser_janner2022, pi0_black2024, diffusionpolicy_chi2023}. Can we leverage expressive generative modeling tools to derive simple, scalable RL approaches?
+
+At the heart of RL is the idea of optimizing \textit{beyond the performance shown in the data.} This is especially important when training agents from offline data that may have been collected by an exploratory or otherwise suboptimal policy. On one end of the spectrum, behavioral cloning methods are simple and can leverage stable generative modeling tools like diffusion \cite{ddpm_ho2020, lipman2024flow} and flow-matching, but are only as optimal as the data. On the other end, iterative RL techniques are in principle more optimal, but in practice can suffer from hyperparameter sensitivity and instability \citep{bottleneck_park2024, cql_kumar2020, td3_fujimoto2018} that have made it challenging to scale to larger tasks.
+
+In this work, we combine the strengths of both settings by developing a framework which is trained with the simplicity of behavioral cloning, yet can further improve on the data behaviors. We first define policies as products of two factors -- a prior reference policy, and an ``optimality'' distribution. When the optimality distribution is proportional to a monotonically increasing function of advantage, we prove that the resulting product will be an improvement over the prior. 
+
+The key insight is that we can sample from this product distribution via techniques from diffusion modeling, and we can do so in a straightforward and controllable way. Rather than optimizing an optimality \textit{predictor}, we instead learn an equivalent optimality-\textit{conditioned} policy, as done in classifier-free guidance \citep{cfg_ho2022}. The prior and conditional factors can then by dynamically combined during sampling, allowing for a degree of policy improvement that can be controlled \textit{during test time}, without the need for retraining. 
+
+Our framework, which we refer to as CFGRL, provides a principled and powerful connection between generative modeling and RL. Diffusion and flow-matching models already represent some of the most powerful approaches for imitation learning, but typically do not make use of guidance \citep{pi0_black2024, diffusionpolicy_chi2023}. CFGRL bridges a connection between guidance and traditional RL objectives---in fact, under certain choices, guided sampling results in a distribution that is equivalent to the solution of a KL-constrained policy improvement objective.
+
+Particularly useful in practice, the CFGRL framework \textit{does not necessarily rely on explicitly learning a value function}. Because of this property, CFGRL can be used as a drop-in replacement in settings such as goal-conditioned behavioral cloning, unlocking further policy improvement without additional training requirements. 
+
+
+We experimentally show applications of CFGRL both as an offline policy extraction method (when a value function is learned), and as a generalization of goal-conditioned behavioral cloning (where we avoid learning any value networks entirely). In the former, CFGRL provides a consistent improvement over standard weighted regression methods. Scaling trends highlight how increasing the guidance term results in stronger policies up to a divergence point. In the latter, CFGRL reliably outperforms goal-conditioned behavioral cloning baselines across the board on state-based, visual, and hierarchical settings, at times increasing success rates by a factor of two.
+
+Our contributions are twofold. First, we propose a \textit{principled connection} between diffusion model guidance and policy improvement in reinforcement learning. Second, we develop a set of simple \textit{practical algorithms} that utilize the above connection to reliably improve policies in both the offline RL and goal-conditioned behavioral cloning settings.
+
+Code to replicate experiments is released at \url{https://github.com/kvfrans/cfgrl}.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Related work}
+
+\textbf{Offline RL.} Unlike standard RL, which involves exploring an environment, offline RL aims to learn a reward-maximizing policy solely from a previously collected dataset. The key challenge is to improve performance while preventing erroneous extrapolation when deviating too far from the dataset. Previous works target this problem from the value learning \citep{cql_kumar2020, iql_kostrikov2022, sql_xu2023, xql_garg2023, edac_an2021, sacrnd_nikulin2023}, and policy extraction \citep{brac_wu2019, td3bc_fujimoto2021, rebrac_tarasov2023, fql_park2025, awr_peng2019, awac_nair2020, sfbc_chen2023, idql_hansenestruch2023} directions. Our work most closely relates to weighted regression \citep{awr_peng2019, awac_nair2020} and return-conditioned behavioral cloning \citep{rcp_kumar2019, dt_chen2021, qdt_yamagata2023} methods (of which goal-conditioned hindsight relabeling \citep{her_andrychowicz2017, gcsl_ghosh2021, rvs_emmons2022, ocbc_eysenbach2022} is a special case), due to their emphasis on simple supervised objectives. However, we instead frame the tradeoff between regularization and policy improvement in terms of guiding a diffusion model, providing a way to \textit{control} this tradeoff during test time.
+
+
+
+\textbf{Diffusion and flow policies for RL.}
+Previous works have proposed diverse ways
+to leverage the expressivity of iterative generative models,
+such as diffusion~\citep{diffusion_sohl2015, ddpm_ho2020}
+and flow models~\citep{flow_lipman2023, flow_liu2023, flow_albergo2023},
+to enhance the capabilities of RL policies.
+The main challenge with diffusion policy learning lies in \emph{how to extract}~\citep{fql_park2025}:
+a diffusion policy to maximize the learned Q-function.
+Prior works propose strategies
+based on weighted regression~\citep{qgpo_lu2023, edp_kang2023, qvpo_ding2024, qipo_zhang2025},
+reparameterized gradients~\citep{dql_wang2023, diffcps_he2023, consistencyac_ding2024, srdp_ada2024, entropydql_zhang2024, fql_park2025},
+rejection sampling~\citep{sfbc_chen2023, idql_hansenestruch2023, aligniql_he2024},
+and more~\citep{dipo_yang2023, acd_kuba2023, diffusiondice_mao2024, eda_chen2024, srpo_chen2024, qsm_psenka2024, dtql_chen2024, ddiffpg_li2024, parl_mark2024, dac_fang2025, dppo_ren2025}.
+Our method introduces classifier-free guidance as a policy extraction mechanism.
+This has multiple benefits over previous approaches:
+unlike reparameterized gradient-based methods, it does not require (potentially unstable) backpropagation through time~\citep{fql_park2025};
+unlike rejection sampling, it does not involve a costly sampling-then-filtering procedure.
+Algorithmically, the closest work to ours is \citet{acd_kuba2023}, which also employs guidance over advantage-conditioned diffusion policies. Unlike this work, our framework supports a range of optimality functions rather than only $A=0$, and does not rely on further rejection sampling. Additionally, we do \emph{not} necessarily require an explicit value function to perform policy improvement---%
+in \Cref{section:gcbc}, we further improve a goal-conditioned BC policy without additionally training value functions,
+whereas all aforementioned techniques would require doing so.
+
+
+
+
+\section{Preliminaries}
+
+In the standard reinforcement learning (RL) setting, we define an environment as a Markov decision process with state space $\gS$, action space $\gA$, a transition function $p(\pl{s'} \mid \pl{s}, \pl{a}): \gS \times \gA \to \Delta(\gS)$, reward function $r(\pl{s}): \gS \to \sR$, and initial state distribution $p(\pl{s_0}) \in \Delta(\gS)$. We assume the state is fully observable. An agent is defined by a policy $\pi(\pl{a} \mid \pl{s}): \gS \to \Delta(A)$ that represents a probability distribution over actions, and together with the environment, produces a distribution of state-action trajectories $\tau = (s_0, a_0, s_1, a_1, \ldots)$. The standard RL objective is to learn a parameterized policy $\pi_\theta$ that maximizes the expected sum of future discounted rewards along such trajectories:
+\begin{equation}
+    J(\pi_\theta) = \mathbb{E}_{\tau \sim p(\pl{\tau} \mid \pi_\theta)}  \sum_t \gamma^t r(s_t, a_t),
+    \label{equation:rl}
+\end{equation}
+where $p(\tau \mid \pi_\theta)$ is defined as $p(s_0) \prod_{t=0}^\infty p(s_{t+1} \mid s_t, a_t) \pi_\theta(a_t \mid s_t)$.
+
+A \textit{policy improvement operator} is an update from
+a reference policy $\hat{\pi}$ to a new policy $\pi$
+such that the RL objective above does not decrease:
+$J(\hat \pi) \leq J(\pi)$.
+This concept is formalized via $V_{\hat{\pi}}(s)$ and $Q_{\hat{\pi}}(s,a)$, which denote the discounted expected future reward under the reference policy starting from a given state or state-action pair, respectively~\citep{rl_sutton2005}. The difference between these terms is the advantage, $A_{\hat{\pi}}(s,a) = Q_{\hat{\pi}}(s, a) - V_{\hat{\pi}}(s)$. A classic result shows that any update with non-negative advantage under the resulting state distribution, such that
+\begin{equation}
+   \E_{(s, a) \sim p_\pi(\pl{s}, \pl{a})} [A_{\hat{\pi}}(s,a)] \geq 0,
+   \label{eq:advantage}
+\end{equation}
+with $p_\pi(\pl{s}, \pl{a})$ denoting the discounted state-action occupancy distribution,
+results in policy improvement~\citep{trpo_schulman2015}. In practice, we require algorithms that operate over samples from a previous reference policy. Therefore, practical algorithms will approximate the above condition under the previous policy's state distribution $p_{\hat{\pi}}(\pl{s})$, and aim to maximize:
+\begin{equation}
+   \tilde{J}(\pi) =\E_{s \sim p_{\hat \pi}(\pl{s})}[ \E_{a \sim \pi(\pl{a} \mid s)}[ A_{\hat{\pi}}(s,a) ]].
+   \label{eq:improvement}
+\end{equation}
+Prior work has shown that, as long as the divergence between the reference and resulting policy is bounded, the approximate objective in \cref{eq:improvement} provides a bound on the true objective in \cref{eq:advantage}, enabling monotonic incremental improvement~\citep{trpo_schulman2015}.
+
+To account for this divergence, it is common to utilize trust-region methods during policy improvement~\citep{trpo_schulman2015, ppo_schulman2017}. While various divergence measures have been considered~\citep{dualrl_sikchi2024}, a standard choice is to penalize the KL divergence between the reference and resulting policy, resulting in the following KL-penalized RL objective as parameterized by a constant $\beta$:
+\begin{equation}
+    J(\pi_\theta) = \mathbb{E}_{\tau \sim p(\pl{\tau} \mid \pi_\theta)} \left[ \sum_t \gamma^t r(s_t, a_t) \right] - \beta \mathbb{E}_{s \sim p_{\pi}(\pl{s})} \left[ \kldiv{\pi_\theta(\pl{a} \mid s)}{\hat{\pi}(\pl{a} \mid s)} \right].
+    \label{equation:klrl}
+\end{equation}
+
+One strategy to optimize the above objective is via iteratively applying a policy gradient \citep{pg_sutton1999}; however, such methods require on-policy samples and can have high variance. The community has instead often relied on methods that resemble supervised learning, such as weighted regression \citep{rwr_peters2007, awr_peng2019}. 
+In the following sections, we introduce a policy improvement strategy based on generative modeling that maintains the simplicity of supervised learning, yet allows for controllable policy improvement.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Diffusion guidance is a controllable policy improvement operator}
+\label{section:operator}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{images/teaser.pdf}
+    
+    \caption{\footnotesize
+    \textbf{While conditioning on optimality can create a baseline level of improvement, policies can be \textit{further} improved by attenuating this conditioning.} When $p(o \mid s,a)$ is proportional to a monotonically increasing function of advantage, then attenuation provably increases expected return, and this can be accomplished naturally with diffusion guidnace.}
+    \label{fig:teaser}
+\end{figure}
+
+In this work, we establish a connection between classifier-free guidance in diffusion modeling and policy improvement in RL. We then use this relation to develop a simple framework, CFGRL, which enables us to leverage stable and scalable diffusion model training methods to enable policies that can improve over the performance in the dataset. Specifically, CFGRL allows the degree of policy improvement to be controlled at \textit{test time}, rather than having to be decided during training. 
+Additionally, CFGRL does not necessarily require the use of an explicit Q-function, allowing it to be used as a drop-in replacement that further improves on methods such as goal-conditioned behavioral cloning.
+
+\textbf{Product policies.} We begin by parameterizing policies as a product of two factors---a reference policy, and an \textit{optimality} function $f: \mathbb{R} \rightarrow \mathbb{R}$, which is conditional on advantage:
+\begin{equation}
+    \pi(a \mid s) \propto \hat{\pi}(a \mid s)\; f(A(s,a)).
+    \label{eq:product-policy}
+\end{equation}
+The motivation behind this factorization is to frame improved policies in terms of a probabilistic adjustment to the current reference policy. As we will show later, diffusion guidance is naturally suited to sampling from such distributions.
+
+We now show how product policies can be used as \textit{policy improvement operators.} When $f$ fulfills certain common criteria, the resulting policy will provably be an improvement over the reference:
+\begin{remark}[\textbf{Improvement of product policies}]
+If $f$ is a non-negative, monotonically increasing function of $A_{\hat{\pi}}(s,a)$, then the product $\pi(a \mid s) \propto \hat{\pi}(a \mid s) f(A(s,a))$ is an improvement over $\hat{\pi}(a \mid s)$.
+\label{thm:product_improvement}
+\end{remark}
+\vspace{-10pt}
+We provide a formalization and proof of this claim in the Appendix (\Cref{thm:reweight}),
+which generalizes previous results with bandits \citep{em_dayan1997, rwr_peters2007} and exponentiated advantages \citep{awr_peng2019}.
+
+The above finding reveals a simple path towards policy improvement. If we can sample from a properly weighted product policy, then the resulting policy will achieve a higher expected return then the reference. 
+
+Crucially, we can control the \textit{degree} of improvement by sampling from an attenuated optimality function. To do so, we consider product policies where the optimality functions are exponentiated:
+\begin{remark}[\textbf{Further improvement via attenuation}]
+    Let $0 \leq w_1 < w_2$ be real numbers, and $\pi_{w_i} \propto \hat{\pi}(a \mid s) \;f(A(s,a))^{w_i}$ for $i=1, 2$. Then, $\pi_{w_2}$ is an improvement over $\pi_{w_1}$.
+    \label{thm:attenuation}
+\end{remark}
+The proof of the above theorem is again provided in the Appendix (\Cref{thm:w_reweight}). Of course, there is no free lunch. While a higher exponent leads to an improved policy in terms of $A_{\hat{\pi}}$, the resulting policy is also further deviated from the reference. Thus, the empirical performance of an over-adjusted policy may suffer due to a distribution shift.
+
+This tradeoff between adhering to the reference policy and maximizing return can be understood via the KL-regularized RL objective in \cref{equation:klrl}. Notably, the \textit{solutions} to the mentioned objective naturally form a set of product policies:
+\begin{remark}[\textbf{KL-regularized reward-maximization results in product policies}~\citep{awr_peng2019}]
+    The policies that maximize \cref{equation:klrl} under a given KL-penalty $\beta$ take the form of
+    \begin{align}
+        \pi(a \mid s) \propto \hat{\pi}(a \mid s) \exp(A(s,a))^{1/\beta}.
+    \end{align}
+\end{remark}
+
+Equivalently, the $\beta$ term can be folded into the exponent, e.g. $\pi(a \mid s)\propto \hat{\pi}(a \mid s)\exp(A(s,a)/\beta)$. This condensed objective has been used in prior works \citep{rwr_peters2007, awr_peng2019} to directly learn $\pi$; however, in their methods the $\beta$ hyperparameter must be specified ahead of time. As shown in the next sections, we will instead develop a framework where the product factors are represented \textit{independently}, allowing their composition to be freely controlled during evaluation time.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\subsection{Composing factors via diffusion guidance}
+
+
+
+Having understood that product policies are a natural way to induce policy improvement, we can now instantiate such policies using machinery from diffusion modeling. We start by casting the optimality function as a binary random variable\footnote{Slightly abusing notation, we abbreviate $o=1$ as $o$ when it is clear from context. $o=\varnothing$ represents an unconditional case where $o$ is not specified, i.e., the union of $o=0$ and $o=1$.} $o \in \{\varnothing,0, 1\}$ whose likelihood is defined via $f$:
+\begin{equation}
+    p(o \mid s,a) = f(A(s,a)) / Z(s)
+\end{equation}
+where $Z(s) = \int f(A(s,a'))da'$ is a state-dependent normalization factor. We will not require estimating $Z(s)$. The product policy from \cref{eq:product-policy} can now be equivalently defined as:
+\begin{equation}
+    \pi(a \mid s) \propto \hat{\pi}(a \mid s)\; p(o \mid s,a).
+\end{equation}
+Recall that diffusion models implicitly model a distribution by learning its normalized \textit{score function}, i.e., the gradient of log-likelihood under that distribution \citep{ncsn_song2019}.
+Score functions have the useful property that for product distributions, they are additively composable. As such, the score of the product policy above can be represented as the sum of two factors:
+\begin{equation}
+    \nabla_a \log \pi(a \mid s) = \nabla_a \log \hat{\pi}(a \mid s) + \nabla_a \; \log p(o \mid s,a).
+    \label{eq:factors}
+\end{equation}
+
+
+\textbf{Avoiding an explicit optimality predictor.} In many cases, we would rather avoid explicitly learning the $p(o \mid s,a)$ distribution. For one thing, optimality must hold a valid probability distribution, and calculating the normalization term $Z(s)$ can be tricky. Secondly, explicitly backpropagating through a neural network predictor may result in adversarial gradient attacks \citep{adversarial_goodfellow2015} especially at out-of-distribution actions \citep{iql_kostrikov2022, cql_kumar2020}. We also note that if one wanted to learn an optimality predictor, it would need to remain accurate under the support of \textit{partially-noised} actions.
+
+Instead, we can utilize an insight from classifier-free guidance \citep{cfg_ho2022}, and use Bayes' rule to invert the optimality distribution into an optimality-\textit{conditioned} policy score function:
+\begin{equation}
+    \nabla_a \log \pi(a \mid s) = \nabla_a \log \hat{\pi}(a \mid s) +  (\nabla_a \log\hat{\pi}(a \mid s,o) - \nabla_a \log \hat{\pi}(a \mid s)).
+    \label{eq:inversion}
+\end{equation}
+With the above form, both factors can be unified into a single conditional policy. We can represent both factors with the same neural network, and train via a straightforward diffusion modeling objective.
+
+\textbf{Guidance controls the attenuation of optimality.} A key benefit of defining the product distribution in terms of composable factors is that the ratio between these factors can be dynamically controlled. Introducing a guidance weight $w$, the score function
+\begin{equation}
+    \nabla_a \log \hat{\pi}(a \mid s) +  w \;(\nabla_a \log\hat{\pi}(a \mid s,o) - \nabla_a \log \hat{\pi}(a \mid s)) 
+\end{equation}
+corresponds to the attenuated distribution
+\begin{equation}
+    \pi(a \mid s) \propto \hat{\pi}(a \mid s) \; p(o \mid s,a)^w, \; \text{and equivalently} \; \; \hat{\pi}(a \mid s)  f(A(s,a))^w.
+\end{equation}
+Recall that in \Cref{thm:attenuation}, we showed that increasing $w$ results in further policy improvement. This implies a simple yet crucial relationship---by controlling the guidance weight during sampling, we can sample from product policies that \textit{controllably} improve on the reference policy (at the cost of adherence to the prior). The tradeoff is a key hyperparameter to tune in offline RL \citep{bottleneck_park2024}, and often requires many sweeps. In contrast, with CFGRL, this sweep can be performed at test-time over a \textit{single} network, without the need for retraining.
+
+
+
+
+
+
+
+
+
+
+
+\vspace*{-4pt}
+\subsection{Training and sampling with CFGRL}
+\vspace*{-4pt}
+\label{section:training}
+
+\begin{figure}
+\vspace*{-4ex}
+\begin{minipage}[t]{0.45\textwidth}
+\begin{algorithm}[H]
+\caption{CFGRL Training}
+\begin{algorithmic}
+   \WHILE{not converged}
+        \STATE \text{Collect data, or use offline data.}
+        \STATE $(s,a) \sim D$, $\textstyle a_0 \sim \mathcal{N}(0,I)$, $t \sim U(0,1)$
+        \STATE \text{Label with optimality $o\in \{0, 1\}$}.
+        \STATE \text{If $\mathrm{rand}() < 0.1$, set optimality $o=\varnothing$.}
+        \STATE $a_t \leftarrow (1-t)\,a_0 + t\,a$
+        \STATE $\textstyle\theta \leftarrow \nabla_\theta \| v_\theta(a_t, t, s, o) - (a - a_0) \|^2$
+   \ENDWHILE
+\end{algorithmic}
+\end{algorithm}
+\end{minipage}
+\hfill
+\begin{minipage}[t]{0.55\textwidth}
+\begin{algorithm}[H]
+\caption{CFGRL Sampling}
+\begin{algorithmic} %
+    \STATE $a \sim \mathcal{N}(0,I)$
+    \STATE $t \leftarrow 0$
+    \FOR{$n \in [0, \dots ,N-1]$}
+        \STATE $v = (1-w) \, v_\theta(a, t, s, \varnothing) + w \, v_\theta(a, t, s, o=1)$
+        \STATE $a \leftarrow a + (n/N)v$
+        \STATE $t \leftarrow t + (n/N)$
+    \ENDFOR  %
+    \STATE \textbf{return} $a$
+\end{algorithmic}
+\label{alg:sampling}
+\end{algorithm}
+\end{minipage}
+\end{figure}
+
+
+We instantiate a single diffusion network to serve as both the conditional and unconditional policy. For simplicity, we adopt the flow-matching framework for training. While flow networks predict velocity rather than score, previous works have shown they retain similar properties in practice \citep{diffusionflow_gao2024, flow_lipman2024}. The policy is modeled by a velocity field $v_\theta$ conditioned on a partially-noised action $a_t$, along with a noise scale $t$, the current state $s$, as well as the previously defined \textit{optimality variable} $o \in \{\varnothing, 0, 1\}$. This network is trained via the following loss function:
+\begin{equation}
+    \mathcal{L}(\theta) = \mathbb{E}_{s,a \sim D} \left[ \| v_\theta(a_t, t, s,o) - (a-a_0) \|^2 \right] \qquad \text{where} \qquad a_t = (1-t)a_0 + ta,
+\end{equation}
+and where the noise scale $t$ is sampled uniformly between $[0,1]$, and $a_0 \sim N(0,1)$ is Gaussian noise.
+
+
+
+
+
+
+
+
+
+
+\section{CFGRL improves over weighted policy extraction in offline RL}
+\label{section:offline}
+
+A common approach to offline RL is to learn a state-action value function $Q_\theta(s,a)$, and then extract a policy from this value function via a regularized policy extraction method that stays close to the behavior policy while maximize the value function. This regularization is critical to avoid out-of-distribution actions for which the value function is likely to overestimate the value~\citep{awr_peng2019, iql_kostrikov2022}. Weighted regression methods are a particularly simple class of methods for doing this, with advantage-weighted regression (AWR) or its variants being a common choice in recent work~\citep{awr_peng2019, awac_nair2020, crr_wang2020}. AWR is trained in a fully supervised manner, and does not require querying the values of non-dataset actions, with the training objective given by
+\begin{equation}
+    J_\mathrm{AWR}(\theta) = E_{(s,a)\sim D} \left[ \log \pi_\theta(a \mid s) \exp(A(s,a) \times (1/\beta)) \right],
+\end{equation}
+where $A(s,a) = Q(s,a) - V(s)$ is calculated as the difference of learned $Q_\theta(s,a)$ and $V_\theta(s)$ networks, and $\beta$ is a temperature hyperparameter.
+
+
+However, the weights in AWR can become peaked, such that much of the data in training is not used effectively, resulting in a weak learning signal. This phenomenon is shown in \cref{fig:awr} (left), which plots the magnitudes of per-element gradients within an AWR batch. Notably, the magnitudes are dominated by a few outlier state-action pairs that hold particularly high weights. In this case, the rest of the batch is effectively ignored, and AWR derives the gradient only from a small subset of the available data.
+\begin{wrapfigure}{r}{0.45\textwidth}
+    \centering
+    \vspace{10pt}
+    \raisebox{0pt}[\dimexpr\height-1.0\baselineskip\relax]{
+        \begin{subfigure}[t]{1.0\linewidth}
+        \includegraphics[width=\linewidth]{images/awr_cfg.pdf}
+        \end{subfigure}
+    }
+    \vspace{-10pt}
+    \caption{
+    \footnotesize
+    \textbf{Weighted regression methods result in uneven gradient magnitudes within a batch.} This can limit the effective signal that each batch provides. In contrast, CFGRL uses a simple conditional diffusion modeling loss with even weighting.
+    }
+    \vspace{-30pt}
+    \label{fig:awr}
+\end{wrapfigure}
+
+We now show how we can instead train with CFGRL to alleviate this issue. Specifically, we will instantiate CFGRL with a particularly simple optimality criteria:
+\begin{equation}
+    o = \begin{cases}
+      1 & \text{if } A(s,a) \geq 0 \\
+      0 & \text{if } A(s,a) < 0,
+    \end{cases}
+\end{equation}
+which nicely lends itself to Bayes' inversion for \cref{eq:inversion}. Equivalently, we are assigning $f = \mathbf{1}(A \geq0)$ which is both non-negative and non-decreasing, fulfilling the criteria of \cref{thm:product_improvement}.
+
+\begin{figure}[t!]
+    \centering
+    \includegraphics[width=\textwidth]{images/awr_cfg_alpha.pdf}
+    \vspace*{-3ex}
+    \caption{\footnotesize
+    \textbf{CFGRL controls the tradeoff between reference adherence and optimality by adjusting the guidance weighting.} This addresses the same motivation behind tuning the temperature in advantage-weighted regression, however, it can be tuned during \textit{test time} rather than via retraining, and empirically leads to a higher maximum performance.}
+    \label{fig:temperature}
+\end{figure}
+
+\begin{table}[t!]
+\label{table:aggregation}
+\centering
+\vspace{-10pt}
+\begin{minipage}{.47\linewidth}
+\centering
+\captionof{table}{
+\footnotesize
+\textbf{ExORL results.}
+\label{table:offline_exorl}
+}
+\vspace{5pt}
+\scalebox{0.8}
+{
+\begin{tabular}{lcc}
+\toprule
+\texttt{Task} & \texttt{AWR} & \texttt{\color{myred}CFGRL} \\
+\midrule
+
+\texttt{walker-stand} & $603$ {\tiny $\pm 8$} & $\mathbf{782}$ {\tiny $\pm 8$} \\
+\texttt{walker-walk} & $444$ {\tiny $\pm 4$} & $\mathbf{608}$ {\tiny $\pm 32$} \\
+\texttt{walker-run} & $247$ {\tiny $\pm 10$} & $\mathbf{282}$ {\tiny $\pm 6$} \\
+\texttt{quadruped-walk} & $\mathbf{776}$ {\tiny $\pm 15$} & $\mathbf{762}$ {\tiny $\pm 25$} \\
+\texttt{quadruped-run} & $485$ {\tiny $\pm 7$} & $\mathbf{571}$ {\tiny $\pm 25$} \\
+\texttt{cheetah-run} & $168$ {\tiny $\pm 7$} & $\mathbf{216}$ {\tiny $\pm 15$} \\
+\texttt{cheetah-run-backward} & $146$ {\tiny $\pm 8$} & $\mathbf{262}$ {\tiny $\pm 26$} \\
+\texttt{jaco-reach-top-right} & $33$ {\tiny $\pm 2$} & $\mathbf{72}$ {\tiny $\pm 6$} \\
+\texttt{jaco-reach-top-left} & $30$ {\tiny $\pm 8$} & $\mathbf{46}$ {\tiny $\pm 6$} \\
+
+\bottomrule
+\end{tabular}
+}
+\end{minipage}%
+\begin{minipage}{.53\linewidth}
+\centering
+\captionof{table}{
+\footnotesize
+\textbf{OGBench results.}
+\label{table:offline_ogbench}
+}
+\vspace{5pt}
+\scalebox{0.8}
+{
+\begin{tabular}{lcc}
+\toprule
+\texttt{Task} & \texttt{AWR} & \texttt{\color{myred}CFGRL} \\
+\midrule
+
+\texttt{pointmaze-large-navigate} & $70$ {\tiny $\pm 25$} & $\mathbf{100}$ {\tiny $\pm 0$} \\
+\texttt{pointmaze-teleport-navigate} & $3$ {\tiny $\pm 7$} & $\mathbf{57}$ {\tiny $\pm 7$} \\
+\texttt{antmaze-large-navigate} & $\mathbf{50}$ {\tiny $\pm 9$} & $20$ {\tiny $\pm 9$} \\
+\texttt{antmaze-teleport-navigate} & $22$ {\tiny $\pm 19$} & $\mathbf{30}$ {\tiny $\pm 22$} \\
+\texttt{humanoidmaze-large-navigate} & $\mathbf{3}$ {\tiny $\pm 4$} & $0$ {\tiny $\pm 0$} \\
+\texttt{antsoccer-arena-navigate} & $7$ {\tiny $\pm 0$} & $\mathbf{20}$ {\tiny $\pm 5$} \\
+\texttt{cube-single-play} & $\mathbf{85}$ {\tiny $\pm 8$} & $\mathbf{82}$ {\tiny $\pm 3$} \\
+\texttt{scene-play} & $\mathbf{18}$ {\tiny $\pm 3$} & $17$ {\tiny $\pm 9$} \\
+\texttt{puzzle-3x3-play} & $\mathbf{3}$ {\tiny $\pm 7$} & $\mathbf{3}$ {\tiny $\pm 4$} \\
+
+\bottomrule
+\end{tabular}
+}
+\end{minipage}
+\end{table}
+
+
+The training procedure with CFGRL is simple. Given an state-action sample $(s,a) \sim D$, we label that pair with $o \in \{0,1\}$ according the above criteria. We then train with the standard conditional diffusion-modeling loss as done in \cref{section:training}. Notably, there is \textit{no weighting term used in training.} As such, gradients within each batch remain reasonably distributed, as shown in \cref{fig:awr} (right).
+
+
+There is a suggestive similarity between the temperature hyperparameter in AWR and the guidance weight in CFGRL. In fact, both these parameters play the same role---they control the tradeoff between adherence to a reference policy and maximization of rewards. However, with AWR, the temperature must be chosen beforehand and is folded into the optimization objective. CFGRL keeps the prior policy and the optimality-conditioned policy separate, and only combines them during sampling. Thus, this tradeoff can be adjusted \textit{without retraining} when using CFGRL, making it easy to find the best value.
+
+Furthermore, we will see that the guidance term in CFGRL is empirically more effective than the temperature of AWR. Note that while the absolute scale of $w$ and $(1/\beta)$ can vary, they have a proportional relationship and share the same base case at $w=(1/\beta)=0$, in which case the resulting policy simply mimics the dataset policy. We examine the scaling of performance over different guidance and temperature values in \cref{fig:temperature}. For AWR, performance saturates around a temperature of $(1/\beta)=10$. In contrast, guidance continues to improve beyond performance beyond this point, displaying a longer-lasting trend.
+
+\textbf{Experimental comparison.} We further establish the comparison between AWR and CFGRL on $9$ tasks from the ExORL benchmark \citep{exorl_yarats2022}, which contains data collected by an exploratory agent, along with $9$ single-task environments from the OGBench suite \citep{ogbench_park2025}. In all experiments, we use the \textit{same} state-action value function trained via implicit Q-learning for both methods \citep{iql_kostrikov2022}, which notably does not require a policy in the loop to learn and is therefore independent of the extraction method that is used downstream. For AWR, we sweep over $1/\beta$ in the set of $\{1, 3, 10, 30\}$, and for CFGRL, we sweep over $w \in \{1, 1.25, 1.5, 2.0, 3.0\}$. Results are presented in \Cref{table:offline_exorl,table:offline_ogbench}, and are averaged over $4$ seeds. On a strong majority of tasks, CFGRL achieves a better final performance than AWR. This indicates that policy extraction with CFGRL, which also corresponds to a simple generative modeling objective, is more effective than the widely used AWR method.
+
+
+
+
+
+
+
+
+
+
+
+\section{CFGRL unlocks hidden gains in goal-conditioned behavioral cloning}
+\label{section:gcbc}
+
+While the overall CFCRL framework is general, it is particularly appealing in the special-case of goal-conditioned RL, where it is common to use a simple (though crude) approximation that bypasses the need for a learned value estimator \citep{ocbc_eysenbach2022, gcsl_ghosh2021, susie_black2024}. In such settings, the objective to find a goal-conditioned policy $\pi(\pl{a} \mid \pl{s}, \pl{g}): \gS \times \gS \to \Delta(\gA)$ that maximizes likelihood of reaching the goal:
+\begin{equation}
+    J(\pi) = \E_{\tau \sim p(\pl{\tau} \mid \pi),\ g \sim p(\pl{g})}\left[\sum_t \gamma^t \delta_g(s_t) \right],
+    \label{eq:goal-reaching}
+\end{equation}
+where $p(\pl{g}) \in \Delta(\gS)$ is a goal distribution
+and reward is $\delta_g$, i.e. the Dirac delta ``function'' at $g$.\footnote{This ``function'' is well-defined in a discrete state space, but requires a measure-theoretic formulation~\citep{fb_touati2021} to be well-defined in a continuous state space, which we omit for simplicity.}
+While in principle, we can optimize the above objective with a full RL procedure, an often-used simplification is to perform goal-conditioned \textit{behavioral cloning} (GCBC), which maximizes:
+\begin{equation}
+    J_\mathrm{GCBC}(\theta) = \E_{\substack{(s_t, a_t) \sim \gD,\ \Delta \sim \mathrm{Geom}(1-\gamma)}}[\log \pi_\theta(a_t \mid s_t, s_{t+\Delta})], \label{eq:gcbc_obj}
+\end{equation}
+where $\mathrm{Geom}(1-\gamma)$ denotes the Geometric distribution with parameter $1 - \gamma$,
+and we often denote $s_{t+\Delta}$ as $g$.
+GCBC can be seen as a special case of conditional behavioral cloning methods that filter for actions that empirically reach a future goal.
+While the GCBC objective above is simple,
+it does not converge to the optimal goal-reaching policy, especially when the dataset is suboptimal~\citep{ocbc_eysenbach2022, ocbc_ghugare2024}
+
+\textbf{Generalizing past na\"ive GCBC.}
+Based on our CFGRL framework in \Cref{section:operator},
+we now introduce a method to further improve GCBC policies
+\emph{without training value functions}.
+The key insight is that, since CFGRL enables one step of policy improvement over the base policy,
+applying CFGRL with guidance on the goal $g$ will produce a policy that is better than the standard GCBC policy.
+While this policy is still not as optimal as the full GCRL solution (which in general would require many steps of policy improvement),
+prior work has shown that even one step of policy improvement can lead to significant performance gains in a range of RL settings~\citep{onestep_brandfonbrener2021, crl_eysenbach2022}.
+Indeed, our experiments will confirm that CFGRL enables a significant increase in performance over standard GCBC.
+
+We begin by noting that the GCBC policy that maximizes \Cref{eq:gcbc_obj} is given as follows~\citep{crl_eysenbach2022}:
+\begin{equation}
+    \pi(a \mid s, g) = \frac{\hat \pi(a \mid s)p^\gamma(g \mid s, a)}{p^\gamma(g \mid s)} \propto  \hat \pi(a \mid s) \; Q_{\hat \pi}(s, a, g), \label{eq:gcbc-factored}
+\end{equation}
+where $p^\gamma$ denotes the distribution induced by the Geometric goal sampling procedure.
+
+Next, we note that the second factor in \Cref{eq:gcbc-factored} satisfies the conditions of \cref{thm:product_improvement} (i.e., a bounded, non-negative, non-decreasing function in $A_{\hat{\pi}}(s, a)$).\footnote{Specifically, we set $f$ as $Q_{\hat \pi}(s, a, g)$, which is a bounded, non-negative, non-decreasing function of $A_{\hat \pi}(s, a, g)$. This can also be understood as defining $p(o \mid g,s,a) \propto p^\gamma(g \mid s,a)$, i.e., an action's optimality is proportional to the likelihood of reaching the goal in the discounted future.}
+Thus, we can invoke \cref{thm:attenuation} to achieve a policy improvement.
+Specifically,
+the resulting policy $\pi(a \mid s) \propto \hat{\pi}(a \mid s) \; p(g \mid s,a)^w$ under any exponent $w \geq 1$ will result in a policy improvement, and we can sample from the attenuated second factor via guidance:
+\begin{equation}
+\nabla_a \log \hat{\pi}(a \mid s) +  w \;(\nabla_a \log \pi(a \mid s,g) - \nabla_a \log \hat{\pi}(a \mid s)).
+\label{eq:gcbc-guidance}
+\end{equation}
+The above CFGRL interpretation reveals a simple recipe for improving beyond the GCBC policy. Specifically, naive GCBC results in a product policy that implicitly assumes a weighting of $w=1$. Guidance allows us to instead consider $w>1$, leading to improved performance.
+
+
+We emphasize the practical benefits of this setup---improvement can be gained for ``free'' relative to a standard GCBC setup. The components of \cref{eq:gcbc-guidance} are simply the original goal-conditioned BC policy $\pi(\pl{a} \mid \pl{s}, \pl{g})$ along with an unconditional BC policy $\hat{\pi}(\pl{a} \mid \pl{s})$. We do \emph{not} require any additional techniques such as training an explicit value function, or sampling further on-policy actions.
+
+
+\subsection{Experimental results}
+
+\begin{figure}
+    \centering
+    \includegraphics[width=\textwidth]{images/gcbc_main.pdf}
+    \vspace*{-4ex}
+    \caption{
+    \footnotesize
+    \textbf{CFGRL can extrapolate \textit{beyond} the GCBC policy, unlocking further performance gains.} \newline In fact, GCBC is implicitly a special case of the CFGRL policy where $w=1$. By instead considering $w>1$, the resulting policy is an improvement over the original. We show that performance steadily increases with $w$ on a range of environments.
+    }
+    \vspace{-10pt}
+    \label{fig:gcbc}
+\end{figure}
+
+\textbf{Tasks.}
+We empirically verify effectiveness over $17$ state-based and $7$ pixel-based goal-conditioned RL tasks from the OGBench task suite~\citep{ogbench_park2025} (\Cref{fig:ogbench}).
+These tasks span a variety of robotic navigation and manipulation domains,
+including whole-body humanoid control, maze navigation, sequential object manipulation, and combinatorial puzzle solving.
+Among them, the tasks prefixed with ``\texttt{visual-}'' require image-based control.
+
+\textbf{Methods.}
+In this experiment, we consider four imitation learning baselines that do not involve value learning
+(recall that CFGRL also does not train a value function):
+(1) BC, (2) flow BC~\citep{diffusionpolicy_chi2023}, (3) goal-conditioned BC (GCBC)~\citep{gcsl_ghosh2021}, and (4) flow GCBC.
+BC trains an (unconditional) behavioral cloning policy,
+and GCBC trains a goal-conditioned policy with \Cref{eq:gcbc_obj}.
+Flow BC and flow GCBC maximize the same objectives, but with flow policies~\citep{diffusionpolicy_chi2023, pi0_black2024}.
+In the CFGRL framework, flow BC corresponds to CFGRL with $w = 0$ and flow GCBC corresponds to $w = 1$.
+
+In addition to the five ``flat'' methods above, we also consider \emph{hierarchical} behavioral cloning~\citep{ril_gupta2019, play_lynch2019} on state-based tasks,
+where we train both a high-level policy $\pi^h(\pl{\ell} \mid \pl{s}, \pl{g}): \gS \times \gS \to \Delta(\gS)$ that outputs subgoals $\ell$
+and a low-level policy $\pi^\ell(\pl{a} \mid \pl{s}, \pl{\ell}): \gS \times \gS \to \Delta(\gA)$ that takes subgoals and outputs actions.
+In this setting, we can apply CFGRL to each level's GCBC objective to enhance the optimality of both policies.
+We call this variant hierarchical CFGRL (HCFGRL).
+As baselines, we consider hierarchical GCBC~\cite{ril_gupta2019, play_lynch2019} and flow hierarchical GCBC,
+which trains Gaussian and flow policies, respectively.
+
+
+\begin{table*}[t!]
+\centering
+\caption{
+\footnotesize
+\textbf{Improving on GCBC.}
+CFGRL consistently improves performance over GCBC across the board.
+Numbers at or above the $95\%$ of the best performance in each category are boldfaced, as in OGBench~\citep{ogbench_park2025}.
+}
+\scalebox{0.73}
+{
+\begin{tabular}{lcccccccc}
+\toprule
+\multicolumn{1}{c}{} & \multicolumn{5}{c}{\texttt{Flat Policies}} & \multicolumn{3}{c}{\texttt{Hierarchical Policies}} \\
+\cmidrule(lr){2-6} \cmidrule(lr){7-9}
+\texttt{Task} & \texttt{BC} & \texttt{Flow BC} & \texttt{GCBC} & \texttt{Flow GCBC} & \texttt{\color{myred}CFGRL} & \texttt{HGCBC} & \texttt{Flow HGCBC} & \texttt{\color{myred}HCFGRL} \\
+\midrule
+
+\texttt{pointmaze-medium-navigate} & $0$ {\tiny $\pm 0$} & $1$ {\tiny $\pm 2$} & $9$ {\tiny $\pm 5$} & $66$ {\tiny $\pm 4$} & $\mathbf{77}$ {\tiny $\pm 6$} & $0$ {\tiny $\pm 0$} & $57$ {\tiny $\pm 7$} & $\mathbf{63}$ {\tiny $\pm 5$} \\
+\texttt{pointmaze-large-navigate} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $25$ {\tiny $\pm 9$} & $\mathbf{74}$ {\tiny $\pm 7$} & $\mathbf{77}$ {\tiny $\pm 5$} & $0$ {\tiny $\pm 0$} & $\mathbf{75}$ {\tiny $\pm 6$} & $57$ {\tiny $\pm 8$} \\
+\texttt{pointmaze-giant-navigate} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $2$ {\tiny $\pm 2$} & $4$ {\tiny $\pm 2$} & $\mathbf{30}$ {\tiny $\pm 10$} & $0$ {\tiny $\pm 0$} & $6$ {\tiny $\pm 5$} & $\mathbf{18}$ {\tiny $\pm 8$} \\
+\texttt{pointmaze-teleport-navigate} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 1$} & $24$ {\tiny $\pm 7$} & $\mathbf{46}$ {\tiny $\pm 4$} & $41$ {\tiny $\pm 8$} & $6$ {\tiny $\pm 5$} & $\mathbf{37}$ {\tiny $\pm 10$} & $\mathbf{38}$ {\tiny $\pm 13$} \\
+\texttt{antmaze-medium-navigate} & $13$ {\tiny $\pm 2$} & $15$ {\tiny $\pm 6$} & $25$ {\tiny $\pm 8$} & $42$ {\tiny $\pm 9$} & $\mathbf{53}$ {\tiny $\pm 12$} & $45$ {\tiny $\pm 7$} & $67$ {\tiny $\pm 8$} & $\mathbf{90}$ {\tiny $\pm 5$} \\
+\texttt{antmaze-large-navigate} & $11$ {\tiny $\pm 4$} & $5$ {\tiny $\pm 2$} & $20$ {\tiny $\pm 4$} & $22$ {\tiny $\pm 5$} & $\mathbf{24}$ {\tiny $\pm 10$} & $45$ {\tiny $\pm 4$} & $61$ {\tiny $\pm 5$} & $\mathbf{78}$ {\tiny $\pm 4$} \\
+\texttt{antmaze-giant-navigate} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $\mathbf{1}$ {\tiny $\pm 1$} & $8$ {\tiny $\pm 5$} & $14$ {\tiny $\pm 5$} & $\mathbf{38}$ {\tiny $\pm 7$} \\
+\texttt{antmaze-teleport-navigate} & $4$ {\tiny $\pm 2$} & $3$ {\tiny $\pm 2$} & $19$ {\tiny $\pm 5$} & $24$ {\tiny $\pm 7$} & $\mathbf{35}$ {\tiny $\pm 9$} & $35$ {\tiny $\pm 6$} & $38$ {\tiny $\pm 5$} & $\mathbf{50}$ {\tiny $\pm 5$} \\
+\texttt{humanoidmaze-medium-navigate} & $3$ {\tiny $\pm 3$} & $2$ {\tiny $\pm 2$} & $6$ {\tiny $\pm 3$} & $8$ {\tiny $\pm 3$} & $\mathbf{19}$ {\tiny $\pm 6$} & $13$ {\tiny $\pm 3$} & $23$ {\tiny $\pm 4$} & $\mathbf{64}$ {\tiny $\pm 10$} \\
+\texttt{humanoidmaze-large-navigate} & $0$ {\tiny $\pm 1$} & $0$ {\tiny $\pm 0$} & $2$ {\tiny $\pm 1$} & $1$ {\tiny $\pm 2$} & $\mathbf{3}$ {\tiny $\pm 2$} & $8$ {\tiny $\pm 5$} & $11$ {\tiny $\pm 2$} & $\mathbf{38}$ {\tiny $\pm 4$} \\
+\texttt{antsoccer-arena-navigate} & $2$ {\tiny $\pm 2$} & $4$ {\tiny $\pm 1$} & $4$ {\tiny $\pm 3$} & $10$ {\tiny $\pm 5$} & $\mathbf{15}$ {\tiny $\pm 6$} & $8$ {\tiny $\pm 4$} & $16$ {\tiny $\pm 5$} & $\mathbf{37}$ {\tiny $\pm 5$} \\
+\texttt{antsoccer-medium-navigate} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $\mathbf{6}$ {\tiny $\pm 4$} & $5$ {\tiny $\pm 3$} & $5$ {\tiny $\pm 3$} & $7$ {\tiny $\pm 2$} & $8$ {\tiny $\pm 3$} & $\mathbf{11}$ {\tiny $\pm 4$} \\
+\texttt{cube-single-play} & $4$ {\tiny $\pm 2$} & $7$ {\tiny $\pm 5$} & $6$ {\tiny $\pm 2$} & $8$ {\tiny $\pm 2$} & $\mathbf{11}$ {\tiny $\pm 5$} & $12$ {\tiny $\pm 3$} & $26$ {\tiny $\pm 5$} & $\mathbf{46}$ {\tiny $\pm 6$} \\
+\texttt{cube-double-play} & $1$ {\tiny $\pm 1$} & $2$ {\tiny $\pm 1$} & $2$ {\tiny $\pm 1$} & $\mathbf{3}$ {\tiny $\pm 1$} & $2$ {\tiny $\pm 2$} & $2$ {\tiny $\pm 1$} & $21$ {\tiny $\pm 7$} & $\mathbf{42}$ {\tiny $\pm 5$} \\
+\texttt{scene-play} & $5$ {\tiny $\pm 2$} & $5$ {\tiny $\pm 3$} & $4$ {\tiny $\pm 3$} & $15$ {\tiny $\pm 5$} & $\mathbf{19}$ {\tiny $\pm 4$} & $7$ {\tiny $\pm 2$} & $14$ {\tiny $\pm 4$} & $\mathbf{18}$ {\tiny $\pm 5$} \\
+\texttt{puzzle-3x3-play} & $\mathbf{3}$ {\tiny $\pm 2$} & $2$ {\tiny $\pm 2$} & $\mathbf{3}$ {\tiny $\pm 2$} & $1$ {\tiny $\pm 1$} & $2$ {\tiny $\pm 2$} & $\mathbf{3}$ {\tiny $\pm 2$} & $1$ {\tiny $\pm 1$} & $2$ {\tiny $\pm 2$} \\
+\texttt{puzzle-4x4-play} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 1$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} \\
+\midrule
+\texttt{visual-antmaze-medium-navigate} & $14$ {\tiny $\pm 5$} & $7$ {\tiny $\pm 1$} & $11$ {\tiny $\pm 5$} & $19$ {\tiny $\pm 4$} & $\mathbf{23}$ {\tiny $\pm 4$} & - & - & - \\
+\texttt{visual-antmaze-large-navigate} & $6$ {\tiny $\pm 4$} & $1$ {\tiny $\pm 1$} & $5$ {\tiny $\pm 2$} & $3$ {\tiny $\pm 1$} & $\mathbf{11}$ {\tiny $\pm 2$} & - & - & - \\
+\texttt{visual-cube-single-play} & $1$ {\tiny $\pm 1$} & $1$ {\tiny $\pm 1$} & $1$ {\tiny $\pm 2$} & $13$ {\tiny $\pm 7$} & $\mathbf{37}$ {\tiny $\pm 9$} & - & - & - \\
+\texttt{visual-cube-double-play} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $0$ {\tiny $\pm 0$} & $\mathbf{10}$ {\tiny $\pm 4$} & $7$ {\tiny $\pm 5$} & - & - & - \\
+\texttt{visual-scene-play} & $5$ {\tiny $\pm 1$} & $7$ {\tiny $\pm 2$} & $5$ {\tiny $\pm 2$} & $25$ {\tiny $\pm 4$} & $\mathbf{40}$ {\tiny $\pm 8$} & - & - & - \\
+\texttt{visual-puzzle-3x3-play} & $\mathbf{1}$ {\tiny $\pm 2$} & $0$ {\tiny $\pm 1$} & $0$ {\tiny $\pm 1$} & $0$ {\tiny $\pm 1$} & $0$ {\tiny $\pm 1$} & - & - & - \\
+\texttt{visual-puzzle-4x4-play} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & $\mathbf{0}$ {\tiny $\pm 0$} & - & - & - \\
+
+\bottomrule
+\end{tabular}
+}
+\vspace{-1em}
+\label{table:gcbc}
+\end{table*}
+
+\textbf{Results.} \Cref{table:gcbc} presents evaluation results averaged over $8$ averaged over $8$ seeds for state-based tasks and $4$ seeds for pixel-based tasks,
+denoting standard deviations after the $\pm$ symbols.
+The results suggest that CFGRL consistently outperforms all four baselines on most of the tasks,
+even with a single fixed value of the guidance strength ($w=3$).
+Notably, on some tasks (e.g., \texttt{pointmaze-giant} and \texttt{visual-cube-single}),
+CFGRL achieves more than $3 \times$ the success of the strongest baseline.
+We again emphasize that this improvement is achieved simply by contrasting the prior and GCBC policies, \emph{without} training a value function.
+As in \Cref{section:offline}, we also measure how the performance of CFGRL varies with different values of CFG weights $w$.
+We present the results on four tasks in \Cref{fig:gcbc} (see \Cref{fig:gcbc_full} for the full results),
+which shows that the performance generally improves as $w$ increases, as predicted by \Cref{thm:attenuation}.
+
+ 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\section{Discussion and Conclusion}
+
+In this work, we introduced a principled connection between diffusion guidance and policy improvement in RL. Using this connection, we derive a simple framework that combines the simplicity of existing generative modeling objectives with the policy improvement capabilities of RL. We then instantiate this framework for policy extraction in offline RL, and for improving over goal-conditioned BC (GCBC) in the goal-conditioned setting. We show that CFGRL improves over the widely used AWR approach in the offline RL setting, and achieves a substantial improvement over GCBC in the goal-conditioned setting, while maintaining the simplicity of these prior methods.
+
+\textbf{Limitations.} Our method does not claim to replace full RL procedures---we assume a given value function and do not make any prescriptions about how to train it. In our experiments, CFGRL takes the place of prior supervised learning methods for policy extraction, maintaining their simplicity and stability. However, more advanced policy extraction methods and online RL techniques, such as policy gradients~\citep{ddpg_lillicrap2016, ppo_schulman2017}, could provide for stronger extrapolation. By itself, CFGRL does not represent a state-of-the-art RL algorithm, but rather an additional tool in the algorithm designer's toolbox that can take the place of policy extraction methods such as AWR, as well as a theoretical connection that we hope will inspire future work.
+
+\textbf{How should I use CFGRL in practice?} The simplicity of our method lends to a plug-and-play approach. If you are already training a goal-conditioned policy, or are conditioning on outcome in any way, then try using guidance as we do in the paper. If you can, do a sweep over $w$ weights, which conveniently can be done without retraining the model.
+
+\textbf{Code.} The presented experiments can be run via \url{https://github.com/kvfrans/cfgrl}.
+
+\section{Acknowledgements}
+This work was supported in part by an NSF Fellowship for KF, under grant No. DGE 2146752, and by the Korea Foundation for Advanced Studies (KFAS) for SP. Any opinions, findings, and conclusions or recommendations expressed in this material are those of the author(s) and do not necessarily reflect the views of the NSF. PA holds concurrent appointments as a Professor at UC Berkeley and as an Amazon Scholar. This paper describes work performed at UC Berkeley and is not associated with Amazon. This research used the Savio computational cluster resource provided by the Berkeley Research Computing program at UC Berkeley.
+
+
+
+{\footnotesize
+\bibliographystyle{plainnat}
+\bibliography{neurips_2024}
+}
+
+
+
+\appendix
+
+\section{Theoretical results}
+
+
+\begin{lemma}[Chebyshev's sum inequality for probability measures] \label{lem:chebyshev}
+For any probability measure $\mu$ on $\sR$ and any bounded, measurable, non-decreasing functions $g, h: \sR \to \sR$,
+\begin{align}
+    \int_\sR g(x)h(x) \mu(\de x) \geq \int_\sR g(x) \mu(\de x) \int_\sR h(x) \mu(\de x).
+\end{align}
+\end{lemma}
+\begin{proof}
+Since $g$ and $h$ are non-decreasing, the signs of $g(y) - g(z)$ and $h(y) - h(z)$ are the same for any $y, z \in \sR$.
+Hence, we have
+\begin{align}
+    0 &\leq \int_{\sR \times \sR} (g(y) - g(z)) (h(y) - h(z)) (\mu \otimes \mu) (\de y, \de z) \\
+    &= \int_\sR \left( \int_\sR (g(y)h(y) + g(z)h(z) - g(y)h(z) - g(z)h(y)) \mu(\de y) \right) \mu(\de z) \\
+    &= 2 \int_\sR g(x)h(x) \mu(\de x) - 2 \int_\sR g(x) \mu(\de x) \int_\sR h(x) \mu(\de x),
+\end{align}
+from which the conclusion follows,
+where $\mu \otimes \mu$ denotes the product measure of $\mu$ and itself,
+and we use Fubini's theorem in the second line.
+\end{proof}
+
+\begin{lemma} \label{lem:imp_lemma}
+Let $s \in \gS$ be a state, $\pi, \hat \pi: \gS \to \Delta(\gA)$ be policies, and $f: \sR \to \sR$ be a bounded, measurable, non-negative, non-decreasing function.
+Suppose that $\pi(a \mid s) = f(A_{\hat{\pi}} (s, a)) \hat \pi(a \mid s)$ and $\E_{a \sim \hat \pi(\cdot \mid s)}[f(A_{\hat \pi}(s, a))] = 1$.
+Then,
+\begin{align}
+    \E_{a \sim \pi(\cdot \mid s)}[Q_{\hat \pi}(s, a)] \geq V_{\hat \pi}(s). \label{eq:imp_lemma}
+\end{align}
+\end{lemma}
+\begin{proof}
+To apply \Cref{lem:chebyshev}, we first rewrite the left-hand side of \Cref{eq:imp_lemma} using probability measures as follows:
+\begin{align}
+    \E_{a \sim \pi(\cdot \mid s)}[Q_{\hat \pi}(s, a)]
+    &= \int_\gA Q_{\hat{\pi}}(s, a) \pi_s(\de a) \\
+    &= \int_\gA Q_{\hat{\pi}}(s, a) f(A_{\hat{\pi}}(s, a)) \hat \pi_s(\de a) \\
+    &= \int_\gA Q_{\hat{\pi}}(s, a) f(Q_{\hat{\pi}}(s, a) - V_{\hat{\pi}}(s)) \hat \pi_s(\de a),
+\end{align}
+where $\pi_s$ and $\hat \pi_s$ denote the probability measures corresponding to
+the distributions $\pi(\cdot \mid s)$ and $\hat \pi(\cdot \mid s)$, respectively.
+Then,
+\begin{align}
+    \E_{a \sim \pi(\cdot \mid s)}[Q_{\hat \pi}(s, a)]
+    &= \int_\gA Q_{\hat{\pi}}(s, a) f(Q_{\hat{\pi}}(s, a) - V_{\hat{\pi}}(s)) \hat \pi_s(\de a)  \\
+    &= \int_\sR q f(q - V_{\hat \pi}(s)) \lambda(\de q) \\
+    &\geq \left( \int_\sR q \lambda(\de q) \right) \left( \int_\sR f(q - V_{\hat{\pi}}(s)) \lambda(\de q) \right) \\
+    &= \left( \int_\gA Q_{\hat{\pi}}(s, a) \hat \pi_s(\de a) \right) \left( \int_\gA f(Q_{\hat{\pi}}(s, a) - V_{\hat{\pi}}(s)) \hat \pi_s(\de a) \right) \\
+    &= \left( \int_\gA Q_{\hat{\pi}}(s, a) \hat \pi_s(\de a) \right) \left( \int_\gA f(A_{\hat{\pi}}(s, a)) \hat \pi_s(\de a) \right) \\
+    &= V_{\hat{\pi}}(s) \E_{a \sim \hat \pi(\cdot \mid s)}[f(A_{\hat \pi}(s, a))] \\
+    &= V_{\hat{\pi}}(s),
+\end{align}
+where $\lambda$ denotes the pushforward measure of $\hat \pi_s$ by $Q_{\hat{\pi}}(s, \cdot)$,
+and we use \Cref{lem:chebyshev} in the third line
+with $g(x) = 1$ and $h(x) = f(x - V_{\hat{\pi}}(s))$,
+both of which are non-decreasing.
+\end{proof}
+
+\begin{lemma}[Policy improvement theorem for stochastic policies~\citep{rl_sutton2005, rl_silva2023}] \label{lem:pit}
+For any policies $\pi$ and $\hat \pi$ satisfying $\E_{a \sim \pi(\cdot \mid s)}[Q_{\hat \pi}(s, a)] \geq V_{\hat \pi}(s)$ for all $s \in \gS$,
+\begin{align}
+    J(\pi) \geq J(\hat \pi).
+\end{align}
+\end{lemma}
+\begin{proof}
+    This is a straightforward generalization of the policy improvement theorem to stochastic policies.
+    See Section 4.2 of \citet{rl_sutton2005} and Theorem 3 of \citet{rl_silva2023}.
+\end{proof}
+
+\begin{theorem}[Policy improvement by reweighting] \label{thm:reweight}
+Let $\pi, \hat \pi: \gS \to \Delta(\gA)$ be policies and $f: \sR \to \sR$ be a bounded, measurable, non-negative, non-decreasing function.
+Suppose that $\pi$ satisfies $\pi(a \mid s) \propto f(A_{\hat{\pi}} (s, a)) \hat \pi(a \mid s)$.
+Then,
+\begin{align}
+    J(\pi) \geq J(\hat \pi).
+\end{align}
+\end{theorem}
+\begin{proof}
+Fix $s \in \gS$.
+Let $\pi(a \mid s) = f(A_{\hat \pi}(s, a))\hat \pi(a \mid s) / Z(s)$,
+where the normalization function $Z: \gS \to \sR$ is defined as
+\begin{align}
+    Z(s) = \int_\gA f(A_{\hat \pi}(s, a)) \hat \pi_s(\de a).
+\end{align}
+Then, we have
+\begin{align}
+1 &= \int_\gA f(A_{\hat \pi}(s, a))/Z(s) \hat \pi_s(\de a) \\
+&= \E_{a \sim \hat \pi(\cdot \mid s)}[f(A_{\hat \pi}(s, a))/Z(s)].
+\end{align}
+Defining $g = f / Z(s)$, we get $\E_{a \sim \hat \pi(\cdot \mid s)}[g(A_{\hat \pi}(s, a))] = 1$.
+Since $f$ is non-negative and non-decreasing, so is $g$,
+and the conclusion directly follows from \Cref{lem:imp_lemma}
+(with $\pi(a \mid s) = g(A_{\hat{\pi}} (s, a)) \hat \pi(a \mid s)$)
+and \Cref{lem:pit}.
+\end{proof}
+
+\begin{theorem} \label{thm:w_reweight}
+Let $0 \leq w_1 \leq w_2$ be real numbers,
+$\pi_1, \pi_2, \hat \pi: \gS \to \Delta(\gA)$ be policies,
+and $f: \sR \to \sR$ be a bounded, measurable, non-negative, non-decreasing function.
+Suppose that $\pi_i$ satisfies
+\mbox{$\pi_i(a \mid s) \propto f(A_{\hat{\pi}} (s, a))^{w_i} \hat \pi(a \mid s)$} for $i = 1, 2$.
+Then,
+\begin{align}
+    J(\pi_1) \leq J(\pi_2).
+\end{align}
+\end{theorem}
+\begin{proof}
+Fix $s \in \gS$. As in the proof of \Cref{thm:reweight}, write
+\begin{align}
+    \pi_1(a \mid s) &= \frac{f(A_{\hat \pi}(s, a))^{w_1} \hat \pi(a \mid s)}{Z_1(s)}, \\
+    \pi_2(a \mid s) &= \frac{f(A_{\hat \pi}(s, a))^{w_2} \hat \pi(a \mid s)}{Z_2(s)},
+\end{align}
+where $Z_1, Z_2: \gS \to \sR$ are the normalization functions.
+Then, we have
+\begin{align}
+    \pi_2(a \mid s) = f(A_{\hat \pi}(s, a))^{w_2 - w_1} \frac{Z_1(s)}{Z_2(s)} \pi_1(a \mid s).
+\end{align}
+Since $Z_1$ and $Z_2$ are both bounded (which follows from the boundedness of $f$),
+measurable, and non-negative,
+we can apply \Cref{lem:imp_lemma} to the bounded, measurable, non-negative, non-decreasing function
+$x \mapsto f(x)^{w_2 - w_1} Z_1(s)/Z_2(s)$ with $(\pi, \hat \pi) = (\pi_2, \pi_1)$ (in the notation of \Cref{lem:imp_lemma}).
+The result then directly follows from \Cref{lem:pit} as before.
+\end{proof}
+
+
+
+
+
+\clearpage
+
+\section{Additional results}
+
+\begin{figure}[t!]
+    \centering
+    \includegraphics[width=\textwidth]{images/ogbench.pdf}
+    \caption{
+    \footnotesize
+    \textbf{OGBench environments.}
+    }
+    \label{fig:ogbench}
+\end{figure}
+
+\begin{figure}[t!]
+    \centering
+    \includegraphics[width=\textwidth]{images/gcbc_full.pdf}
+    \caption{
+    \footnotesize
+    \textbf{Full ablation results on CFG weight $\bm{w}$.}
+    The performance of CFGRL generally improves as the CFG weight increases.
+    }
+    \label{fig:gcbc_full}
+\end{figure}
+
+
+\begin{figure}[t!]
+    \centering
+    \includegraphics[width=\textwidth]{images/gcbc_arch.pdf}
+    \caption{
+    \footnotesize
+    \textbf{Ablation study on optimality conditioning.}
+    Shared policies lead to better performance and extrapolation than separate policies,
+    likely because the former shares representations.
+    }
+    \label{fig:gcbc_arch}
+\end{figure}
+
+\textbf{Enviromments.} \Cref{fig:ogbench} illustrates OGBench tasks.
+
+\textbf{Ablation study on the CFG weight $\bm{w}$.}
+We present the full ablation study on the CFG weight $w$ across all $17$ state-based OGBench tasks in \Cref{fig:gcbc_full}.
+The results show that the performance improves as the CFG weight increases,
+although it sometimes declines beyond a certain point,
+likely because the policy deviates too far from the data distribution.
+
+\textbf{Ablation study on optimality conditioning.}
+When modeling an optimality-conditioned policy $\pi(\pl{a} \mid \pl{s}, \pl{o})$ with $o \in \{\varnothing, 0, 1\}$,
+we can either have separate networks for each $o$ value, or share the same network with a learnable optimality embedding.
+We choose the latter in our experiments, and present an ablation study in \Cref{fig:gcbc_arch}.
+The results suggest that the shared architecture generally works and extrapolates better than the separate one.
+We believe this is likely because extrapolation benefits from shared representations.
+
+\section{Implementation details}
+
+We implement CFGRL on top of the reference implementations provided by OGBench~\citep{ogbench_park2025}.
+Each experiment in this work takes no more than $4$ hours on a single A5000 GPU.
+We provide our implementations in the supplemental material.
+
+\textbf{Tasks.}
+In \Cref{section:offline}, we employ $9$ tasks from the ExORL benchmark~\citep{exorl_yarats2022}
+and $9$ single-task (\texttt{singletask}) variants from the OGBench suite~\citep{ogbench_park2025}.
+We use the RND datasets for our ExORL experiments.
+In \Cref{section:gcbc}, we employ the \texttt{oraclerep} variant of OGBench tasks
+to remove confounding factors related to goal representation learning,
+where this variant provides ground-truth goal representations
+(e.g., in \texttt{antmaze}, a goal is specified by only the $x$-$y$ position, as opposed to the full $29$-dimensional state including proprioceptive information).
+
+\textbf{Methods and hyperparameters.}
+For baselines, we follow the original implementations and hyperparameters whenever possible~\citep{iql_kostrikov2022, ogbench_park2025, fql_park2025}.
+For GCBC methods in \Cref{section:gcbc}, we sample goals uniformly from future states, as in the original implementation in OGBench~\citep{ogbench_park2025}.
+This can be viewed as an approximation of geometric sampling with a high $\gamma$.
+We present the full list of the hyperparameters in \Cref{table:hyp_offline_exorl,table:exorl_params,table:hyp_offline_ogbench,table:hyp_offline_ogbench_pertask,table:hyp_gcbc}.
+
+\clearpage
+
+\begin{table}[t]
+\caption{
+\footnotesize
+\textbf{Hyperparameters for ExORL offline RL experiments (\Cref{table:offline_exorl}).}
+}
+\vspace{5pt}
+\label{table:hyp_offline_exorl}
+\begin{center}
+\scalebox{0.8}
+{
+\begin{tabular}{ll}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Learning rate & $0.0003$ \\
+    Optimizer & Adam~\citep{adam_kingma2015} \\
+    Gradient steps & $1000000$ \\
+    Minibatch size & $1024$ \\
+    MLP dimensions & $[512, 512, 512]$ \\
+    Nonlinearity & Mish~\citep{mish_misra2020} \\
+    Target network smoothing coefficient & $0.005$ \\
+    Discount factor $\gamma$ & $0.99$ (default), $0.995$ (\texttt{antmaze-giant}, \texttt{humanoidmaze}, \texttt{antsoccer}) \\
+    Flow steps & $32$ \\
+    Flow time sampling distribution & $\mathrm{Unif}([0, 1])$ \\
+    IQL expectile & $0.9$ \\
+    CFGRL $w$ and AWR $1/\beta$ & \Cref{table:exorl_params} \\
+    \bottomrule
+\end{tabular}
+}
+\end{center}
+\end{table} 
+
+\begin{table}[t]
+\caption{
+\footnotesize
+\textbf{Per-task hyperparameters for ExoRL offline RL experiments (\Cref{table:hyp_offline_exorl}).}
+}
+\vspace{5pt}
+\label{table:exorl_params}
+\begin{center}
+\scalebox{0.8}
+{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Task} & \textbf{AWR} $\bm{1/\beta}$ & \textbf{CFGRL} $\bm{w}$ \\
+\midrule
+
+\texttt{walker-stand} & $3$ & $30$ \\
+\texttt{walker-walk} & $3$ & $30$ \\
+\texttt{walker-run} & $10$ & $30$ \\
+\texttt{quadruped-walk} & $3$ & $3$ \\
+\texttt{quadruped-run} & $3$ & $10$ \\
+\texttt{cheetah-run} & $30$ & $10$ \\
+\texttt{cheetah-run-backward} & $3$ & $30$ \\
+\texttt{jaco-reach-top-right} & $3$ & $3$ \\
+\texttt{jaco-reach-top-left} & $3$ & $3$ \\
+
+\bottomrule
+\end{tabular}
+}
+\end{center}
+\end{table} 
+
+
+\begin{table}[t]
+\caption{
+\footnotesize
+\textbf{Hyperparameters for OGBench offline RL experiments (\Cref{table:offline_ogbench}).}
+}
+\vspace{5pt}
+\label{table:hyp_offline_ogbench}
+\begin{center}
+\scalebox{0.8}
+{
+\begin{tabular}{ll}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Learning rate & $0.0003$ \\
+    Optimizer & Adam~\citep{adam_kingma2015} \\
+    Gradient steps & $500000$ \\
+    Minibatch size & $256$ \\
+    MLP dimensions & $[512, 512, 512, 512]$ \\
+    Nonlinearity & GELU~\citep{gelu_hendrycks2016} \\
+    Target network smoothing coefficient & $0.005$ \\
+    Discount factor $\gamma$ & $0.99$ (default), $0.995$ (\texttt{antmaze-giant}, \texttt{humanoidmaze}, \texttt{antsoccer}) \\
+    Flow steps & $16$ \\
+    Flow time sampling distribution & $\mathrm{Unif}([0, 1])$ \\
+    IQL expectile & $0.9$ \\
+    AWR $1/\beta$ and CFGRL $w$ & \Cref{table:hyp_offline_ogbench_pertask} \\
+    \bottomrule
+\end{tabular}
+}
+\end{center}
+\end{table} 
+
+\begin{table}[t]
+\caption{
+\footnotesize
+\textbf{Per-task hyperparameters for OGBench offline RL experiments (\Cref{table:offline_ogbench}).}
+}
+\vspace{5pt}
+\label{table:hyp_offline_ogbench_pertask}
+\begin{center}
+\scalebox{0.8}
+{
+\begin{tabular}{lcc}
+\toprule
+\textbf{Task} & \textbf{AWR} $\bm{1/\beta}$ & \textbf{CFGRL} $\bm{w}$ \\
+\midrule
+
+\texttt{pointmaze-large-navigate} & $10$ & $1$ \\
+\texttt{pointmaze-teleport-navigate} & $1$ & $1$ \\
+\texttt{antmaze-large-navigate} & $10$ & $1.25$ \\
+\texttt{antmaze-teleport-navigate} & $10$ & $3$ \\
+\texttt{humanoidmaze-large-navigate} & $3$ & $1$ \\
+\texttt{antsoccer-arena-navigate} & $10$ & $1.5$ \\
+\texttt{cube-single-play} & $1$ & $1.5$ \\
+\texttt{scene-play} & $3$ & $3$ \\
+\texttt{puzzle-3x3-play} & $1$ & $3$ \\
+
+\bottomrule
+\end{tabular}
+}
+\end{center}
+\end{table} 
+
+
+
+\begin{table}[t]
+\caption{
+\footnotesize
+\textbf{Hyperparameters for GCBC experiments (\Cref{table:gcbc}).}
+}
+\vspace{5pt}
+\label{table:hyp_gcbc}
+\begin{center}
+\scalebox{0.8}
+{
+\begin{tabular}{ll}
+    \toprule
+    \textbf{Hyperparameter} & \textbf{Value} \\
+    \midrule
+    Learning rate & $0.0003$ \\
+    Optimizer & Adam~\citep{adam_kingma2015} \\
+    Gradient steps & $1000000$ \\
+    Minibatch size & $1024$ (states), $256$ (pixels) \\
+    MLP dimensions & $[512, 512, 512, 512]$ \\
+    Nonlinearity & GELU~\citep{gelu_hendrycks2016} \\
+    Image augmentation probability & $0.5$ \\
+    Flow steps & $16$ \\
+    Flow time sampling distribution & $\mathrm{Unif}([0, 1])$ \\
+    CFGRL $w$ & $3$ \\
+    Subgoal steps for hierarchical BC & $25$ (default), $10$ (OGBench manipulation), $50$ (\texttt{humanoidmaze}) \\
+    \bottomrule
+\end{tabular}
+}
+\end{center}
+\end{table} 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+\end{document}

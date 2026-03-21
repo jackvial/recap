@@ -1,36 +1,84 @@
 # Advantage Conditioning
 
-## KL Regularized RL
-- We want something like [PPO](https://arxiv.org/abs/1707.06347)/[TRPO](https://arxiv.org/abs/1502.05477)/[MAXIMUM A POSTERIORI POLICY OPTIMISATION](https://arxiv.org/pdf/1806.06920) regularization so we don't take too large of a step away from our reference policy but we want to end up with something we can use in a supervised learning objective (the advantage indicator).
-- Maximum Entropy Inverse Reinforcement Learning https://www.ri.cmu.edu/pub_files/2008/7/AAAI2008-bziebart.pdf?utm_source=chatgpt.com
-- RL regularization notes https://rl-vs.github.io/rlvs2021/class-material/regularized_mdp/Regularization_RL_RLVS.pdf
-
-
-KL regularized RL objective. Choose a policy that maximizes expected return minus a penalty for being different from the reference policy. The divergence D is usually the KL divergence.
+## Overview
+Start with the standard KL regularized RL objective ([SAC]((https://arxiv.org/pdf/1801.01290)), [TRPO](https://arxiv.org/pdf/1502.05477))
 
 ```math
 \mathcal{J}(\pi, \pi^{ref}) = \mathbb{E}_{\tau \sim \rho_{\pi_\theta}}[\sum_{t=0}^T \gamma^t r_t] - \beta \mathbb{E}_{\mathbf{o} \sim \rho_{\pi_\theta}} [D(\pi(\cdot \mid \mathbf{o}) \| \pi_{\text{ref}}(\cdot \mid \mathbf{o}))]
 ```
-We do not want to optimize the above directly, instead we use  the following Boltzmann/softmax closed-form optimizer. 
+
+> Choose a policy that maximizes expected return minus a penalty for being different from the reference policy
+
+ with the goal of getting to an NLL supervised learning objective conditioned on our advantage derived from our value network. The flow matching VLA loss will be MSE on the velocity, the move NLL to MSE is justified in appendix C resulting in the squared error term in equation 9.
+ 
+ ```math
+ \begin{equation}
+\begin{aligned}
+\min_\theta \: &\mathbb{E}_{\mathcal{D}_{\pi_{\mathrm{ref}}}} \Big[ -\log \pi_\theta(\mathbf{a}_t \mid \mathbf{o}_t, \ell) - \alpha \log \pi_\theta(\mathbf{a}_t \mid I_t, \mathbf{o}_t, \ell)\Big], \\
+& \text{where } I_t = \mathbb{1}\big(A^{\pi_{\mathrm{ref}}}(\mathbf{o}_t, \mathbf{a}_t, \ell) > \epsilon_\ell \big).
+\end{aligned}
+\end{equation}
+```
+## Steps
+
+KL regularized RL objective is based on max entropy RL. Max entropy builds on the Boltzmann-Gibbs distribution being the maximizer of max entropy. (Softmax is an example of the Boltzmann-Gibbs distribution). So the following term is the maximimzer of the KL reguluated objective. This is the Boltzmann Gibbs form with the normalizer omitted, hence porportional.
 
 ```math
-\hat{\pi}(a \mid o)=
-\frac{\pi_{\text{ref}}(a \mid o)\exp\left(A^{\pi_{\text{ref}}}(o, a) / \beta\right)}
-{\sum_{a'} \pi_{\text{ref}}(a' \mid o)\exp\left(A^{\pi_{\text{ref}}}(o, a') / \beta\right)}
+\hat{\pi}(\mathbf{a} \mid \mathbf{o}) \propto \pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o}) \exp(A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a}) / \beta)
 ```
 
-This is often written with the denominator omitted 
+Replace the exponential weight term with a policy improvement term and indicator $I$. This policy improvement term appears to be related to [CFGRL](https://arxiv.org/pdf/2505.23458)
 ```math
-\hat{\pi}(\mathbf{a} \mid \mathbf{o}) \propto \pi_{\text{ref}}(\mathbf{a} \mid \mathbf{o}) \exp\left(A^{\pi_{\text{ref}}}(\mathbf{o}, \mathbf{a}) / \beta\right)
+\hat{\pi}(\mathbf{a} \mid \mathbf{o}) \propto \pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o}) p(I \mid A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a}))^\beta
+```
+where 
+```math
+p(I \mid A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a})) = \frac{g(A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a}))}{\int g(A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a}')) \, \mathrm{d}\mathbf{a}'}
+```
+is the probability of any action a improving over $\pi_{ref}$.
+
+Using Bayes rule, rewrite the policy improvement term so that actions are conditioned on the observation and indicator rather than indicator being conditioned on the observation and action. This is the conditional dependency we want for our supervised learning objective.
+```math
+p(I \mid A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a})) = \frac{\pi_{\mathrm{ref}}(\mathbf{a} \mid I, \mathbf{o})}{\pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o})}
 ```
 
-For continuous action spaces, replace the sum in the denominator with the corresponding integral / partition function.
+Plugging this into our language conditioned policy setting
+```math
+\begin{equation}
+\hat{\pi}(\mathbf{a} \mid \mathbf{o}, \ell) \propto \pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o}, \ell) \left( \frac{\pi_{\mathrm{ref}}(\mathbf{a} \mid I, \mathbf{o}, \ell)}{\pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o}, \ell)} \right)^\beta
+\end{equation}
+```
 
-This is related to the fact that softmax is the solution to the KL regularized argmax. Some useful references:
-- [On the Properties of the Softmax Function with Application in
-Game Theory and Reinforcement Learning](https://arxiv.org/pdf/1704.00805)
+Then set $\beta=1$ to achieve a few things:
+- Removes the weighted term and moves the policy indictor into the policy term.
+- Allows the same paramterized policy to be used for conditioned and unconditioned policy. They reference [CFGRL]([CFGRL](https://arxiv.org/pdf/2505.23458)) and say "This principle is similar to the approach in classifier-free guidance, where a diffusion model is trained
+to model the data both with and without a conditioning
+variable"
+
+Then apply threshold to get a delta ($\delta$) distribution (Dirac delta is the continous case, Kronecker is the discrete case). That is to say it's a distribution that has a signle value of 1 and is 0 everywhere else.
+
+```math
+p(I \mid A^{\pi_{\mathrm{ref}}}(o, a, \ell)) = \delta\left(A^{\pi_{\mathrm{ref}}}(o, a, \ell) > \epsilon_\ell\right)
+```
+
+So at this point we can derive an NLL (equivalently cross entropy) objective suitable for supervised learning that is conditioned on the binary indictor derivied from the advantage we get from the trained value network and justified as policy improvement via the steps outlined above. Note that this only shows $\pi_{\theta}$ this is a consequence of the [CFGRL]([CFGRL](https://arxiv.org/pdf/2505.23458)) related move of using the same policy for the unconditioned and conditioned policy.
+
+ ```math
+ \begin{equation}
+\begin{aligned}
+\min_\theta \: &\mathbb{E}_{\mathcal{D}_{\pi_{\mathrm{ref}}}} \Big[ -\log \pi_\theta(\mathbf{a}_t \mid \mathbf{o}_t, \ell) - \alpha \log \pi_\theta(\mathbf{a}_t \mid I_t, \mathbf{o}_t, \ell)\Big], \\
+& \text{where } I_t = \mathbb{1}\big(A^{\pi_{\mathrm{ref}}}(\mathbf{o}_t, \mathbf{a}_t, \ell) > \epsilon_\ell \big).
+\end{aligned}
+\end{equation}
+```
+
+But, the model we want to train with the conditioned and unconditioned inputs is a Flow-matching VLA with MSE objective over velocity. The justification for using MSE is described in appendix C resulting in the squared error term in equation 9. So to train the VLA with with conditional advantage we compute the advange using our value network, add the derived advantage indictor to our input, and train the VLA with MSE loss on velocity as usual.
+
+## References
+- [π*0.6 : a VLA That Learns From Experience](https://arxiv.org/pdf/2511.14759)
 - [Soft Actor-Critic:
 Off-Policy Maximum Entropy Deep Reinforcement
 Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
-
-For some intuition, consider that softmax is the "soft" version of the argmax. Argmax says take the arg with highest value with absolute certainty, softmax says prefer higher scores but still leave some uncertainty. As temperature goes to zero, softmax concentrates on the argmax set; when there is a unique maximizer it converges to the corresponding one-hot distribution.
+- [Diffusion Guidance Is a Controllable
+Policy Improvement Operator (CFGRL)](https://arxiv.org/pdf/2505.23458)
+- [Trust Region Policy Optimization (TRPO)](https://arxiv.org/pdf/1502.05477)
