@@ -1,4 +1,4 @@
-# Advantage Conditioning
+# RECAP Advantage Conditioning
 
 ## Overview
 Start with the standard KL regularized RL objective ([SAC]((https://arxiv.org/pdf/1801.01290)), [TRPO](https://arxiv.org/pdf/1502.05477))
@@ -9,7 +9,7 @@ Start with the standard KL regularized RL objective ([SAC]((https://arxiv.org/pd
 
 > Choose a policy that maximizes expected return minus a penalty for being different from the reference policy
 
- with the goal of getting to an NLL supervised learning objective conditioned on our advantage derived from our value network. The flow matching VLA loss will be MSE on the velocity, the move NLL to MSE is justified in appendix C resulting in the squared error term in equation 9.
+ with the goal of getting to an NLL (token prediction) or MSE (Flow matching) supervised learning objective conditioned on our advantage derived from our value network.
  
  ```math
  \begin{equation}
@@ -72,13 +72,18 @@ So at this point we can derive an NLL (equivalently cross entropy) objective sui
 \end{equation}
 ```
 
-But, the model we want to train with the conditioned and unconditioned inputs is a Flow-matching VLA with MSE objective over velocity. The justification for using MSE is described in appendix C resulting in the squared error term in equation 9. So to train the VLA with with conditional advantage we compute the advange using our value network, add the derived advantage indictor to our input, and train the VLA with MSE loss on velocity as usual.
+For Flow-matching VLA we want an MSE objective over velocity. Details on the loss MSE are described in appendix C resulting in the squared error term in equation 9.
+
+The $\pi0.5$ and $\pi^*0.6$ describe a NLL/CE loss for token prediction and the MSE loss for the Flow-matching head. Current implemetations of $\pi0.5$ in OpenPI and LeRobot appear to only support training with an MSE loss. The FAST versions of the models support the cross entropy loss training on tokens.
 
 ## References
 - [π*0.6 : a VLA That Learns From Experience](https://arxiv.org/pdf/2511.14759)
+
 - [Soft Actor-Critic:
 Off-Policy Maximum Entropy Deep Reinforcement
 Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
 - [Diffusion Guidance Is a Controllable
 Policy Improvement Operator (CFGRL)](https://arxiv.org/pdf/2505.23458)
 - [Trust Region Policy Optimization (TRPO)](https://arxiv.org/pdf/1502.05477)
+- [π0.5: a Vision-Language-Action Model with
+Open-World Generalization](https://arxiv.org/pdf/2504.16054)
