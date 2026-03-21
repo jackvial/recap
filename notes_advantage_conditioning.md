@@ -11,7 +11,7 @@ KL regularized RL objective. Choose a policy that maximizes expected return minu
 ```math
 \mathcal{J}(\pi, \pi^{ref}) = \mathbb{E}_{\tau \sim \rho_{\pi_\theta}}[\sum_{t=0}^T \gamma^t r_t] - \beta \mathbb{E}_{\mathbf{o} \sim \rho_{\pi_\theta}} [D(\pi(\cdot \mid \mathbf{o}) \| \pi_{\text{ref}}(\cdot \mid \mathbf{o}))]
 ```
-We do not want to optimize the above directly. The following is a closed-form solution. This has the Boltzmann distribution form
+We do not want to optimize the above directly, instead we use  the following Boltzmann/softmax closed-form optimizer. 
 
 ```math
 \hat{\pi}(a \mid o)=
@@ -23,3 +23,14 @@ This is often written with the denominator omitted
 ```math
 \hat{\pi}(\mathbf{a} \mid \mathbf{o}) \propto \pi_{\text{ref}}(\mathbf{a} \mid \mathbf{o}) \exp\left(A^{\pi_{\text{ref}}}(\mathbf{o}, \mathbf{a}) / \beta\right)
 ```
+
+For continuous action spaces, replace the sum in the denominator with the corresponding integral / partition function.
+
+This is related to the fact that softmax is the solution to the KL regularized argmax. Some useful references:
+- [On the Properties of the Softmax Function with Application in
+Game Theory and Reinforcement Learning](https://arxiv.org/pdf/1704.00805)
+- [Soft Actor-Critic:
+Off-Policy Maximum Entropy Deep Reinforcement
+Learning with a Stochastic Actor](https://arxiv.org/pdf/1801.01290)
+
+For some intuition, consider that softmax is the "soft" version of the argmax. Argmax says take the arg with highest value with absolute certainty, softmax says prefer higher scores but still leave some uncertainty. As temperature goes to zero, softmax concentrates on the argmax set; when there is a unique maximizer it converges to the corresponding one-hot distribution.
