@@ -21,7 +21,7 @@ Start with the standard KL regularized RL objective ([SAC](https://arxiv.org/pdf
 ```
 ## Steps
 
-KL regularized RL objective is based on max entropy RL. Max entropy builds on the Boltzmann-Gibbs distribution being the maximizer of max entropy. (Softmax is an example of the Boltzmann-Gibbs distribution). So the following term is the maximimzer of the KL reguluated objective. This is the Boltzmann Gibbs form with the normalizer omitted, hence porportional.
+KL regularized RL objective is based on max entropy RL. Max entropy builds on the Boltzmann-Gibbs distribution being the maximizer of max entropy. (Softmax is an example of the Boltzmann-Gibbs distribution). So the following term is the maximimzer of the KL regulated objective. This is the Boltzmann Gibbs form with the normalizer omitted, hence porportional.
 
 ```math
 \hat{\pi}(\mathbf{a} \mid \mathbf{o}) \propto \pi_{\mathrm{ref}}(\mathbf{a} \mid \mathbf{o}) \exp(A^{\pi_{\mathrm{ref}}}(\mathbf{o}, \mathbf{a}) / \beta)
@@ -72,7 +72,7 @@ So at this point we can derive an NLL (equivalently cross entropy) objective sui
 \end{equation}
 ```
 
-For Flow-matching VLA we want an MSE objective over velocity. Details on the loss MSE are described in appendix C resulting in the squared error term in equation 9.
+For Flow-matching VLA we want an MSE objective over velocity. Details on the MSE loss are described in appendix C resulting in the squared error term in equation 9.
 
 The $\pi0.5$ and $\pi^*0.6$ describe a NLL/CE loss for token prediction and the MSE loss for the Flow-matching head. Current implemetations of $\pi0.5$ in OpenPI and LeRobot appear to only support training with an MSE loss. The FAST versions of the models support the cross entropy loss training on tokens.
 
