@@ -11,12 +11,14 @@
 - [x] Notes on the main value function equations from the paper
     - [value network notes](./notes_value_network.md)
     - [value network code example](./value_network.py)
-- [ ] Notes on base model architecture needed for the value function/network
 - [x] Notes on RECAP advantage conditioning
     - [advantage conditioning notes](./notes_advantage_conditioning.md)
-- [ ] Collect a small dataset of a pick and place task on an SO-101. e.g. 20 positive examples, 20 negative examples.
-- [ ] Label the episodes with binary reward labels. Figure out where to keep the reward labels. 
+- [x] Collect a small dataset of a pick and place task on an SO-101. e.g. 20 positive examples, 20 negative examples.
+    - 40 epsidoes 20 success + 20 fail [so101_pickplace_recap_merged_v2](https://huggingface.co/datasets/jackvial/so101_pickplace_recap_merged_v2)
+- [x] Label the episodes with binary reward labels. Figure out where to keep the reward labels. 
+    - The above dataset includes [an additional reward labels file](https://huggingface.co/datasets/jackvial/so101_pickplace_recap_merged_v2/blob/main/meta/episode_labels.csv)
 - [ ] Implement the value network
+    - Jack (me) is currently working on this. Here's a preview of the training progress https://x.com/jackvial89/status/2036238816319545636 
 - [ ] Train the value network
 - [ ] Implement the main model with advantage conditioning
 - [ ] Train the main model
