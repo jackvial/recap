@@ -3,6 +3,10 @@
 ## Overview
 Train a value network from epsiode level binary success/fail.
 At train time run the value network and compute a binary advantage from it's predictions, append this to the string input, this allows the model to learn two disbributions positive/negative, at inference time we simply just allows append the "Advantage: positive" string and this tells the model to alway sample from the "Advantage: positive" distribution.
+
+The binary reward labels are need for both the value network training and the advantage conditioned network training.
+For the advantage conditioned network training they are used to compute the advantage between return derived from the deterministic return and the value network predicted return.
+
 Start with the standard KL regularized RL objective ([SAC](https://arxiv.org/pdf/1i801.01290), [TRPO](https://arxiv.org/pdf/1502.05477))
 
 ```math
