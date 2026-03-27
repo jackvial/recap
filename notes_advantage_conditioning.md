@@ -7,6 +7,8 @@ At train time run the value network and compute a binary advantage from it's pre
 The binary reward labels are need for both the value network training and the advantage conditioned network training.
 For the advantage conditioned network training they are used to compute the advantage between return derived from the deterministic return and the value network predicted return.
 
+The advantage tokens can likely be precompute before training the advantage network rather than running the value network for every iteration.
+
 Start with the standard KL regularized RL objective ([SAC](https://arxiv.org/pdf/1i801.01290), [TRPO](https://arxiv.org/pdf/1502.05477))
 
 ```math
